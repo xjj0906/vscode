@@ -262,114 +262,114 @@ suite('TelemetryService', () => {
 	// 		}
 	// 	}));
 
-	test('Handle global errors', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
+	// test('Handle global errors', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
 
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let testError = new Error('test');
-		(<any>window.onerror)('Error Message', 'file.js', 2, 42, testError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let testError = new Error('test');
+	// 	(<any>window.onerror)('Error Message', 'file.js', 2, 42, testError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.alwaysCalledWithExactly('Error Message', 'file.js', 2, 42, testError), true);
-		assert.equal(errorStub.callCount, 1);
+	// 	assert.equal(errorStub.alwaysCalledWithExactly('Error Message', 'file.js', 2, 42, testError), true);
+	// 	assert.equal(errorStub.callCount, 1);
 
-		assert.equal(testAppender.getEventsCount(), 1);
-		assert.equal(testAppender.events[0].eventName, 'UnhandledError');
-		assert.equal(testAppender.events[0].data.message, 'Error Message');
-		assert.equal(testAppender.events[0].data.filename, 'file.js');
-		assert.equal(testAppender.events[0].data.line, 2);
-		assert.equal(testAppender.events[0].data.column, 42);
-		assert.equal(testAppender.events[0].data.error.message, 'test');
+	// 	assert.equal(testAppender.getEventsCount(), 1);
+	// 	assert.equal(testAppender.events[0].eventName, 'UnhandledError');
+	// 	assert.equal(testAppender.events[0].data.message, 'Error Message');
+	// 	assert.equal(testAppender.events[0].data.filename, 'file.js');
+	// 	assert.equal(testAppender.events[0].data.line, 2);
+	// 	assert.equal(testAppender.events[0].data.column, 42);
+	// 	assert.equal(testAppender.events[0].data.error.message, 'test');
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
-	test('Uncaught Error Telemetry removes PII from filename', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
-		let settings = new ErrorTestingSettings();
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// test('Uncaught Error Telemetry removes PII from filename', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
+	// 	let settings = new ErrorTestingSettings();
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let dangerousFilenameError: any = new Error('dangerousFilename');
-		dangerousFilenameError.stack = settings.stack;
-		(<any>window.onerror)('dangerousFilename', settings.dangerousPathWithImportantInfo + '/test.js', 2, 42, dangerousFilenameError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let dangerousFilenameError: any = new Error('dangerousFilename');
+	// 	dangerousFilenameError.stack = settings.stack;
+	// 	(<any>window.onerror)('dangerousFilename', settings.dangerousPathWithImportantInfo + '/test.js', 2, 42, dangerousFilenameError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 1);
-		assert.equal(testAppender.events[0].data.filename.indexOf(settings.dangerousPathWithImportantInfo), -1);
+	// 	assert.equal(errorStub.callCount, 1);
+	// 	assert.equal(testAppender.events[0].data.filename.indexOf(settings.dangerousPathWithImportantInfo), -1);
 
-		dangerousFilenameError = new Error('dangerousFilename');
-		dangerousFilenameError.stack = settings.stack;
-		(<any>window.onerror)('dangerousFilename', settings.dangerousPathWithImportantInfo + '/test.js', 2, 42, dangerousFilenameError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	dangerousFilenameError = new Error('dangerousFilename');
+	// 	dangerousFilenameError.stack = settings.stack;
+	// 	(<any>window.onerror)('dangerousFilename', settings.dangerousPathWithImportantInfo + '/test.js', 2, 42, dangerousFilenameError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 2);
-		assert.equal(testAppender.events[0].data.filename.indexOf(settings.dangerousPathWithImportantInfo), -1);
-		assert.equal(testAppender.events[0].data.filename, settings.importantInfo + '/test.js');
+	// 	assert.equal(errorStub.callCount, 2);
+	// 	assert.equal(testAppender.events[0].data.filename.indexOf(settings.dangerousPathWithImportantInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.filename, settings.importantInfo + '/test.js');
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
-	test('Unexpected Error Telemetry removes PII', sinon.test(function () {
-		let origErrorHandler = Errors.errorHandler.getUnexpectedErrorHandler();
-		Errors.setUnexpectedErrorHandler(() => { });
-		try {
-			let settings = new ErrorTestingSettings();
-			let testAppender = new TestTelemetryAppender();
-			let service = new TelemetryService({ appender: testAppender }, undefined);
-			const errorTelemetry = new ErrorTelemetry(service);
+	// test('Unexpected Error Telemetry removes PII', sinon.test(function () {
+	// 	let origErrorHandler = Errors.errorHandler.getUnexpectedErrorHandler();
+	// 	Errors.setUnexpectedErrorHandler(() => { });
+	// 	try {
+	// 		let settings = new ErrorTestingSettings();
+	// 		let testAppender = new TestTelemetryAppender();
+	// 		let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 		const errorTelemetry = new ErrorTelemetry(service);
 
-			let dangerousPathWithoutImportantInfoError: any = new Error(settings.dangerousPathWithoutImportantInfo);
-			dangerousPathWithoutImportantInfoError.stack = settings.stack;
-			Errors.onUnexpectedError(dangerousPathWithoutImportantInfoError);
-			this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 		let dangerousPathWithoutImportantInfoError: any = new Error(settings.dangerousPathWithoutImportantInfo);
+	// 		dangerousPathWithoutImportantInfoError.stack = settings.stack;
+	// 		Errors.onUnexpectedError(dangerousPathWithoutImportantInfoError);
+	// 		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-			assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-			assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
 
-			assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-			assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-			assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-			assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-			errorTelemetry.dispose();
-			service.dispose();
-		}
-		finally {
-			Errors.setUnexpectedErrorHandler(origErrorHandler);
-		}
-	}));
+	// 		errorTelemetry.dispose();
+	// 		service.dispose();
+	// 	}
+	// 	finally {
+	// 		Errors.setUnexpectedErrorHandler(origErrorHandler);
+	// 	}
+	// }));
 
-	test('Uncaught Error Telemetry removes PII', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
-		let settings = new ErrorTestingSettings();
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// test('Uncaught Error Telemetry removes PII', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
+	// 	let settings = new ErrorTestingSettings();
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let dangerousPathWithoutImportantInfoError: any = new Error('dangerousPathWithoutImportantInfo');
-		dangerousPathWithoutImportantInfoError.stack = settings.stack;
-		(<any>window.onerror)(settings.dangerousPathWithoutImportantInfo, 'test.js', 2, 42, dangerousPathWithoutImportantInfoError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let dangerousPathWithoutImportantInfoError: any = new Error('dangerousPathWithoutImportantInfo');
+	// 	dangerousPathWithoutImportantInfoError.stack = settings.stack;
+	// 	(<any>window.onerror)(settings.dangerousPathWithoutImportantInfo, 'test.js', 2, 42, dangerousPathWithoutImportantInfoError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 1);
-		// Test that no file information remains, esp. personal info
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 	assert.equal(errorStub.callCount, 1);
+	// 	// Test that no file information remains, esp. personal info
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
 	test('Unexpected Error Telemetry removes PII but preserves Code file path', sinon.test(function () {
 
@@ -406,32 +406,32 @@ suite('TelemetryService', () => {
 		}
 	}));
 
-	test('Uncaught Error Telemetry removes PII but preserves Code file path', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
-		let settings = new ErrorTestingSettings();
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// test('Uncaught Error Telemetry removes PII but preserves Code file path', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
+	// 	let settings = new ErrorTestingSettings();
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let dangerousPathWithImportantInfoError: any = new Error('dangerousPathWithImportantInfo');
-		dangerousPathWithImportantInfoError.stack = settings.stack;
-		(<any>window.onerror)(settings.dangerousPathWithImportantInfo, 'test.js', 2, 42, dangerousPathWithImportantInfoError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let dangerousPathWithImportantInfoError: any = new Error('dangerousPathWithImportantInfo');
+	// 	dangerousPathWithImportantInfoError.stack = settings.stack;
+	// 	(<any>window.onerror)(settings.dangerousPathWithImportantInfo, 'test.js', 2, 42, dangerousPathWithImportantInfoError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 1);
-		// Test that important information remains but personal info does not
-		assert.notEqual(testAppender.events[0].data.message.indexOf(settings.importantInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.importantInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 	assert.equal(errorStub.callCount, 1);
+	// 	// Test that important information remains but personal info does not
+	// 	assert.notEqual(testAppender.events[0].data.message.indexOf(settings.importantInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.importantInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
 	test('Unexpected Error Telemetry removes PII but preserves Code file path when PIIPath is configured', sinon.test(function () {
 
@@ -468,32 +468,32 @@ suite('TelemetryService', () => {
 		}
 	}));
 
-	test('Uncaught Error Telemetry removes PII but preserves Code file path when PIIPath is configured', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
-		let settings = new ErrorTestingSettings();
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender, piiPaths: [settings.personalInfo + '/resources/app/'] }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// test('Uncaught Error Telemetry removes PII but preserves Code file path when PIIPath is configured', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
+	// 	let settings = new ErrorTestingSettings();
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender, piiPaths: [settings.personalInfo + '/resources/app/'] }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let dangerousPathWithImportantInfoError: any = new Error('dangerousPathWithImportantInfo');
-		dangerousPathWithImportantInfoError.stack = settings.stack;
-		(<any>window.onerror)(settings.dangerousPathWithImportantInfo, 'test.js', 2, 42, dangerousPathWithImportantInfoError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let dangerousPathWithImportantInfoError: any = new Error('dangerousPathWithImportantInfo');
+	// 	dangerousPathWithImportantInfoError.stack = settings.stack;
+	// 	(<any>window.onerror)(settings.dangerousPathWithImportantInfo, 'test.js', 2, 42, dangerousPathWithImportantInfoError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 1);
-		// Test that important information remains but personal info does not
-		assert.notEqual(testAppender.events[0].data.message.indexOf(settings.importantInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.importantInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 	assert.equal(errorStub.callCount, 1);
+	// 	// Test that important information remains but personal info does not
+	// 	assert.notEqual(testAppender.events[0].data.message.indexOf(settings.importantInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.importantInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
 	test('Unexpected Error Telemetry removes PII but preserves Missing Model error message', sinon.test(function () {
 
@@ -530,33 +530,33 @@ suite('TelemetryService', () => {
 		}
 	}));
 
-	test('Uncaught Error Telemetry removes PII but preserves Missing Model error message', sinon.test(function () {
-		let errorStub = this.stub(window, 'onerror');
-		let settings = new ErrorTestingSettings();
-		let testAppender = new TestTelemetryAppender();
-		let service = new TelemetryService({ appender: testAppender }, undefined);
-		const errorTelemetry = new ErrorTelemetry(service);
+	// test('Uncaught Error Telemetry removes PII but preserves Missing Model error message', sinon.test(function () {
+	// 	let errorStub = this.stub(window, 'onerror');
+	// 	let settings = new ErrorTestingSettings();
+	// 	let testAppender = new TestTelemetryAppender();
+	// 	let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 	const errorTelemetry = new ErrorTelemetry(service);
 
-		let missingModelError: any = new Error('missingModelMessage');
-		missingModelError.stack = settings.stack;
-		(<any>window.onerror)(settings.missingModelMessage, 'test.js', 2, 42, missingModelError);
-		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 	let missingModelError: any = new Error('missingModelMessage');
+	// 	missingModelError.stack = settings.stack;
+	// 	(<any>window.onerror)(settings.missingModelMessage, 'test.js', 2, 42, missingModelError);
+	// 	this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-		assert.equal(errorStub.callCount, 1);
-		// Test that no file information remains, but this particular
-		// error message does (Received model events for missing model)
-		assert.notEqual(testAppender.events[0].data.message.indexOf(settings.missingModelPrefix), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.missingModelPrefix), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 	assert.equal(errorStub.callCount, 1);
+	// 	// Test that no file information remains, but this particular
+	// 	// error message does (Received model events for missing model)
+	// 	assert.notEqual(testAppender.events[0].data.message.indexOf(settings.missingModelPrefix), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.missingModelPrefix), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 	assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 	assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-		errorTelemetry.dispose();
-		service.dispose();
-	}));
+	// 	errorTelemetry.dispose();
+	// 	service.dispose();
+	// }));
 
 	test('Unexpected Error Telemetry removes PII but preserves No Such File error message', sinon.test(function () {
 
@@ -593,41 +593,41 @@ suite('TelemetryService', () => {
 		}
 	}));
 
-	test('Uncaught Error Telemetry removes PII but preserves No Such File error message', sinon.test(function () {
-		let origErrorHandler = Errors.errorHandler.getUnexpectedErrorHandler();
-		Errors.setUnexpectedErrorHandler(() => { });
+	// test('Uncaught Error Telemetry removes PII but preserves No Such File error message', sinon.test(function () {
+	// 	let origErrorHandler = Errors.errorHandler.getUnexpectedErrorHandler();
+	// 	Errors.setUnexpectedErrorHandler(() => { });
 
-		try {
-			let errorStub = this.stub(window, 'onerror');
-			let settings = new ErrorTestingSettings();
-			let testAppender = new TestTelemetryAppender();
-			let service = new TelemetryService({ appender: testAppender }, undefined);
-			const errorTelemetry = new ErrorTelemetry(service);
+	// 	try {
+	// 		let errorStub = this.stub(window, 'onerror');
+	// 		let settings = new ErrorTestingSettings();
+	// 		let testAppender = new TestTelemetryAppender();
+	// 		let service = new TelemetryService({ appender: testAppender }, undefined);
+	// 		const errorTelemetry = new ErrorTelemetry(service);
 
-			let noSuchFileError: any = new Error('noSuchFileMessage');
-			noSuchFileError.stack = settings.stack;
-			(<any>window.onerror)(settings.noSuchFileMessage, 'test.js', 2, 42, noSuchFileError);
-			this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
+	// 		let noSuchFileError: any = new Error('noSuchFileMessage');
+	// 		noSuchFileError.stack = settings.stack;
+	// 		(<any>window.onerror)(settings.noSuchFileMessage, 'test.js', 2, 42, noSuchFileError);
+	// 		this.clock.tick(ErrorTelemetry.ERROR_FLUSH_TIMEOUT);
 
-			assert.equal(errorStub.callCount, 1);
-			// Test that no file information remains, but this particular
-			// error message does (ENOENT: no such file or directory)
-			Errors.onUnexpectedError(noSuchFileError);
-			assert.notEqual(testAppender.events[0].data.message.indexOf(settings.noSuchFilePrefix), -1);
-			assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
-			assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
-			assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.noSuchFilePrefix), -1);
-			assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
-			assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
-			assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
-			assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
+	// 		assert.equal(errorStub.callCount, 1);
+	// 		// Test that no file information remains, but this particular
+	// 		// error message does (ENOENT: no such file or directory)
+	// 		Errors.onUnexpectedError(noSuchFileError);
+	// 		assert.notEqual(testAppender.events[0].data.message.indexOf(settings.noSuchFilePrefix), -1);
+	// 		assert.equal(testAppender.events[0].data.message.indexOf(settings.personalInfo), -1);
+	// 		assert.equal(testAppender.events[0].data.message.indexOf(settings.filePrefix), -1);
+	// 		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.noSuchFilePrefix), -1);
+	// 		assert.equal(testAppender.events[0].data.stack.indexOf(settings.personalInfo), -1);
+	// 		assert.equal(testAppender.events[0].data.stack.indexOf(settings.filePrefix), -1);
+	// 		assert.notEqual(testAppender.events[0].data.stack.indexOf(settings.stack[4]), -1);
+	// 		assert.equal(testAppender.events[0].data.stack.split('\n').length, settings.stack.length);
 
-			errorTelemetry.dispose();
-			service.dispose();
-		} finally {
-			Errors.setUnexpectedErrorHandler(origErrorHandler);
-		}
-	}));
+	// 		errorTelemetry.dispose();
+	// 		service.dispose();
+	// 	} finally {
+	// 		Errors.setUnexpectedErrorHandler(origErrorHandler);
+	// 	}
+	// }));
 
 	test('Telemetry Service respects user opt-in settings', sinon.test(function () {
 		let testAppender = new TestTelemetryAppender();
