@@ -213,7 +213,7 @@ export class TerminalTaskSystem extends EventEmitter implements ITaskSystem {
 		}
 
 		if (task.command) {
-			return TPromise.join(promises).then((summaries): ITaskSummary => {
+			return TPromise.join(promises).then((summaries): TPromise<ITaskSummary> | ITaskSummary => {
 				for (let summary of summaries) {
 					if (summary.exitCode !== 0) {
 						return { exitCode: summary.exitCode };
@@ -423,7 +423,7 @@ export class TerminalTaskSystem extends EventEmitter implements ITaskSystem {
 			shellArgs.push(commandLine);
 			shellLaunchConfig.args = Platform.isWindows ? shellArgs.join(' ') : shellArgs;
 			if (task.command.terminalBehavior.echo) {
-				shellLaunchConfig.initialText = `> ${commandLine}`;
+				shellLaunchConfig.initialText = `\x1b[4mExecuting task: ${commandLine}\x1b[0m\n`;
 			}
 		} else {
 			let cwd = options && options.cwd ? options.cwd : process.cwd();
@@ -446,7 +446,7 @@ export class TerminalTaskSystem extends EventEmitter implements ITaskSystem {
 					}
 					return args.join(' ');
 				};
-				shellLaunchConfig.initialText = `> ${shellLaunchConfig.executable} ${getArgsToEcho(shellLaunchConfig.args)}`;
+				shellLaunchConfig.initialText = `Executing task: ${shellLaunchConfig.executable} ${getArgsToEcho(shellLaunchConfig.args)}\n`;
 			}
 		}
 		if (options.cwd) {
