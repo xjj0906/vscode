@@ -19,23 +19,23 @@ import { BackupMainService } from 'vs/platform/backup/electron-main/backupMainSe
 import { IBackupWorkspacesFormat } from 'vs/platform/backup/common/backup';
 import { HotExitConfiguration } from 'vs/platform/files/common/files';
 import { TestConfigurationService } from 'vs/platform/configuration/test/common/testConfigurationService';
-import { LogMainService } from "vs/platform/log/common/log";
-import { IWorkspaceIdentifier } from "vs/platform/workspaces/common/workspaces";
-import { createHash } from "crypto";
-import { WorkspacesMainService } from "vs/platform/workspaces/electron-main/workspacesMainService";
+import { ConsoleLogMainService } from 'vs/platform/log/common/log';
+import { IWorkspaceIdentifier } from 'vs/platform/workspaces/common/workspaces';
+import { createHash } from 'crypto';
+import { getRandomTestPath } from 'vs/workbench/test/workbenchTestServices';
+import { Schemas } from 'vs/base/common/network';
 
 suite('BackupMainService', () => {
-	const parentDir = path.join(os.tmpdir(), 'vsctests', 'service');
+	const parentDir = getRandomTestPath(os.tmpdir(), 'vsctests', 'backupservice');
 	const backupHome = path.join(parentDir, 'Backups');
 	const backupWorkspacesPath = path.join(backupHome, 'workspaces.json');
 
 	const environmentService = new EnvironmentService(parseArgs(process.argv), process.execPath);
-	const logService = new LogMainService(environmentService);
 
 	class TestBackupMainService extends BackupMainService {
 
 		constructor(backupHome: string, backupWorkspacesPath: string, configService: TestConfigurationService) {
-			super(environmentService, configService, new LogMainService(environmentService), new WorkspacesMainService(environmentService, logService));
+			super(environmentService, configService, new ConsoleLogMainService());
 
 			this.backupHome = backupHome;
 			this.workspacesJsonPath = backupWorkspacesPath;
@@ -123,8 +123,8 @@ suite('BackupMainService', () => {
 		// 3) backup workspace path exists with empty folders within
 		fs.mkdirSync(service.toBackupPath(fooFile.fsPath));
 		fs.mkdirSync(service.toBackupPath(barFile.fsPath));
-		fs.mkdirSync(path.join(service.toBackupPath(fooFile.fsPath), 'file'));
-		fs.mkdirSync(path.join(service.toBackupPath(barFile.fsPath), 'untitled'));
+		fs.mkdirSync(path.join(service.toBackupPath(fooFile.fsPath), Schemas.file));
+		fs.mkdirSync(path.join(service.toBackupPath(barFile.fsPath), Schemas.untitled));
 		service.registerFolderBackupSync(fooFile.fsPath);
 		service.registerFolderBackupSync(barFile.fsPath);
 		service.loadSync();
@@ -134,7 +134,7 @@ suite('BackupMainService', () => {
 
 		// 4) backup workspace path points to a workspace that no longer exists
 		// so it should convert the backup worspace to an empty workspace backup
-		const fileBackups = path.join(service.toBackupPath(fooFile.fsPath), 'file');
+		const fileBackups = path.join(service.toBackupPath(fooFile.fsPath), Schemas.file);
 		fs.mkdirSync(service.toBackupPath(fooFile.fsPath));
 		fs.mkdirSync(service.toBackupPath(barFile.fsPath));
 		fs.mkdirSync(fileBackups);
@@ -170,8 +170,8 @@ suite('BackupMainService', () => {
 		// 3) backup workspace path exists with empty folders within
 		fs.mkdirSync(service.toBackupPath(fooFile.fsPath));
 		fs.mkdirSync(service.toBackupPath(barFile.fsPath));
-		fs.mkdirSync(path.join(service.toBackupPath(fooFile.fsPath), 'file'));
-		fs.mkdirSync(path.join(service.toBackupPath(barFile.fsPath), 'untitled'));
+		fs.mkdirSync(path.join(service.toBackupPath(fooFile.fsPath), Schemas.file));
+		fs.mkdirSync(path.join(service.toBackupPath(barFile.fsPath), Schemas.untitled));
 		service.registerWorkspaceBackupSync(toWorkspace(fooFile.fsPath));
 		service.registerWorkspaceBackupSync(toWorkspace(barFile.fsPath));
 		service.loadSync();
@@ -181,7 +181,7 @@ suite('BackupMainService', () => {
 
 		// 4) backup workspace path points to a workspace that no longer exists
 		// so it should convert the backup worspace to an empty workspace backup
-		const fileBackups = path.join(service.toBackupPath(fooFile.fsPath), 'file');
+		const fileBackups = path.join(service.toBackupPath(fooFile.fsPath), Schemas.file);
 		fs.mkdirSync(service.toBackupPath(fooFile.fsPath));
 		fs.mkdirSync(service.toBackupPath(barFile.fsPath));
 		fs.mkdirSync(fileBackups);
@@ -192,6 +192,48 @@ suite('BackupMainService', () => {
 		service.loadSync();
 		assert.equal(service.getWorkspaceBackups().length, 0);
 		assert.equal(service.getEmptyWindowBackupPaths().length, 1);
+
+		done();
+	});
+
+	test('service supports to migrate backup data from another location', done => {
+		const backupPathToMigrate = service.toBackupPath(fooFile.fsPath);
+		fs.mkdirSync(backupPathToMigrate);
+		fs.writeFileSync(path.join(backupPathToMigrate, 'backup.txt'), 'Some Data');
+		service.registerFolderBackupSync(backupPathToMigrate);
+
+		const workspaceBackupPath = service.registerWorkspaceBackupSync(toWorkspace(barFile.fsPath), backupPathToMigrate);
+
+		assert.ok(fs.existsSync(workspaceBackupPath));
+		assert.ok(fs.existsSync(path.join(workspaceBackupPath, 'backup.txt')));
+		assert.ok(!fs.existsSync(backupPathToMigrate));
+
+		const emptyBackups = service.getEmptyWindowBackupPaths();
+		assert.equal(0, emptyBackups.length);
+
+		done();
+	});
+
+	test('service backup migration makes sure to preserve existing backups', done => {
+		const backupPathToMigrate = service.toBackupPath(fooFile.fsPath);
+		fs.mkdirSync(backupPathToMigrate);
+		fs.writeFileSync(path.join(backupPathToMigrate, 'backup.txt'), 'Some Data');
+		service.registerFolderBackupSync(backupPathToMigrate);
+
+		const backupPathToPreserve = service.toBackupPath(barFile.fsPath);
+		fs.mkdirSync(backupPathToPreserve);
+		fs.writeFileSync(path.join(backupPathToPreserve, 'backup.txt'), 'Some Data');
+		service.registerFolderBackupSync(backupPathToPreserve);
+
+		const workspaceBackupPath = service.registerWorkspaceBackupSync(toWorkspace(barFile.fsPath), backupPathToMigrate);
+
+		assert.ok(fs.existsSync(workspaceBackupPath));
+		assert.ok(fs.existsSync(path.join(workspaceBackupPath, 'backup.txt')));
+		assert.ok(!fs.existsSync(backupPathToMigrate));
+
+		const emptyBackups = service.getEmptyWindowBackupPaths();
+		assert.equal(1, emptyBackups.length);
+		assert.equal(1, fs.readdirSync(path.join(backupHome, emptyBackups[0])).length);
 
 		done();
 	});
@@ -322,7 +364,8 @@ suite('BackupMainService', () => {
 			assert.deepEqual(service.getEmptyWindowBackupPaths(), []);
 		});
 
-		test('getEmptyWorkspaceBackupPaths() should return [] when folderWorkspaces in workspaces.json is not a string array', () => {
+		test('getEmptyWorkspaceBackupPaths() should return [] when folderWorkspaces in workspaces.json is not a string array', function () {
+			this.timeout(5000);
 			fs.writeFileSync(backupWorkspacesPath, '{"emptyWorkspaces":{}}');
 			service.loadSync();
 			assert.deepEqual(service.getEmptyWindowBackupPaths(), []);

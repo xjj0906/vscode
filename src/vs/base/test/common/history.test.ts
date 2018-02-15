@@ -83,11 +83,11 @@ suite('History Navigator', () => {
 	});
 
 	test('adding existing element changes the position', function () {
-		let testObject = new HistoryNavigator(['1', '2', '3', '4'], 2);
+		let testObject = new HistoryNavigator(['1', '2', '3', '4'], 5);
 
 		testObject.add('2');
 
-		assert.deepEqual(['4', '2'], toArray(testObject));
+		assert.deepEqual(['1', '3', '4', '2'], toArray(testObject));
 	});
 
 	test('add resets the navigator to last', function () {
@@ -98,6 +98,14 @@ suite('History Navigator', () => {
 
 		assert.equal('5', testObject.current());
 		assert.equal(null, testObject.next());
+	});
+
+	test('adding an existing item changes the order', function () {
+		let testObject = new HistoryNavigator(['1', '2', '3']);
+
+		testObject.add('1');
+
+		assert.deepEqual(['2', '3', '1'], toArray(testObject));
 	});
 
 	function toArray(historyNavigator: HistoryNavigator<string>): string[] {

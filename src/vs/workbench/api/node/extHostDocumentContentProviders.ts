@@ -5,16 +5,15 @@
 'use strict';
 
 import { onUnexpectedError } from 'vs/base/common/errors';
-import * as editorCommon from 'vs/editor/common/editorCommon';
-import URI from 'vs/base/common/uri';
+import URI, { UriComponents } from 'vs/base/common/uri';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Disposable } from 'vs/workbench/api/node/extHostTypes';
 import { TPromise } from 'vs/base/common/winjs.base';
 import * as vscode from 'vscode';
 import { asWinJsPromise } from 'vs/base/common/async';
-import { TextSource } from 'vs/editor/common/model/textSource';
 import { MainContext, ExtHostDocumentContentProvidersShape, MainThreadDocumentContentProvidersShape, IMainContext } from './extHost.protocol';
 import { ExtHostDocumentsAndEditors } from './extHostDocumentsAndEditors';
+import { Schemas } from 'vs/base/common/network';
 
 export class ExtHostDocumentContentProvider implements ExtHostDocumentContentProvidersShape {
 
@@ -25,7 +24,7 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 	private readonly _documentsAndEditors: ExtHostDocumentsAndEditors;
 
 	constructor(mainContext: IMainContext, documentsAndEditors: ExtHostDocumentsAndEditors) {
-		this._proxy = mainContext.get(MainContext.MainThreadDocumentContentProviders);
+		this._proxy = mainContext.getProxy(MainContext.MainThreadDocumentContentProviders);
 		this._documentsAndEditors = documentsAndEditors;
 	}
 
@@ -34,7 +33,9 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 	}
 
 	registerTextDocumentContentProvider(scheme: string, provider: vscode.TextDocumentContentProvider): vscode.Disposable {
-		if (scheme === 'file' || scheme === 'untitled') {
+		// todo@remote
+		// check with scheme from fs-providers!
+		if (scheme === Schemas.file || scheme === Schemas.untitled) {
 			throw new Error(`scheme '${scheme}' already registered`);
 		}
 
@@ -47,7 +48,7 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 		if (typeof provider.onDidChange === 'function') {
 			subscription = provider.onDidChange(uri => {
 				if (this._documentsAndEditors.getDocument(uri.toString())) {
-					this.$provideTextDocumentContent(handle, <URI>uri).then(value => {
+					this.$provideTextDocumentContent(handle, uri).then(value => {
 
 						const document = this._documentsAndEditors.getDocument(uri.toString());
 						if (!document) {
@@ -56,11 +57,11 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 						}
 
 						// create lines and compare
-						const textSource = TextSource.fromString(value, editorCommon.DefaultEndOfLine.CRLF);
+						const lines = value.split(/\r\n|\r|\n/);
 
 						// broadcast event when content changed
-						if (!document.equalLines(textSource)) {
-							return this._proxy.$onVirtualDocumentChange(<URI>uri, textSource);
+						if (!document.equalLines(lines)) {
+							return this._proxy.$onVirtualDocumentChange(uri, value);
 						}
 
 					}, onUnexpectedError);
@@ -78,11 +79,11 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 		});
 	}
 
-	$provideTextDocumentContent(handle: number, uri: URI): TPromise<string> {
+	$provideTextDocumentContent(handle: number, uri: UriComponents): TPromise<string> {
 		const provider = this._documentContentProviders.get(handle);
 		if (!provider) {
 			return TPromise.wrapError<string>(new Error(`unsupported uri-scheme: ${uri.scheme}`));
 		}
-		return asWinJsPromise(token => provider.provideTextDocumentContent(uri, token));
+		return asWinJsPromise(token => provider.provideTextDocumentContent(URI.revive(uri), token));
 	}
 }

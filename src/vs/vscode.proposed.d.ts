@@ -7,18 +7,199 @@
 
 declare module 'vscode' {
 
-	// todo@joh discover files etc
-	export interface FileSystemProvider {
-		// todo@joh -> added, deleted, renamed, changed
-		onDidChange: Event<Uri>;
+	// export enum FileErrorCodes {
+	// 	/**
+	// 	 * Not owner.
+	// 	 */
+	// 	EPERM = 1,
+	// 	/**
+	// 	 * No such file or directory.
+	// 	 */
+	// 	ENOENT = 2,
+	// 	/**
+	// 	 * I/O error.
+	// 	 */
+	// 	EIO = 5,
+	// 	/**
+	// 	 * Permission denied.
+	// 	 */
+	// 	EACCES = 13,
+	// 	/**
+	// 	 * File exists.
+	// 	 */
+	// 	EEXIST = 17,
+	// 	/**
+	// 	 * Not a directory.
+	// 	 */
+	// 	ENOTDIR = 20,
+	// 	/**
+	// 	 * Is a directory.
+	// 	 */
+	// 	EISDIR = 21,
+	// 	/**
+	// 	 *  File too large.
+	// 	 */
+	// 	EFBIG = 27,
+	// 	/**
+	// 	 * No space left on device.
+	// 	 */
+	// 	ENOSPC = 28,
+	// 	/**
+	// 	 * Directory is not empty.
+	// 	 */
+	// 	ENOTEMPTY = 66,
+	// 	/**
+	// 	 * Invalid file handle.
+	// 	 */
+	// 	ESTALE = 70,
+	// 	/**
+	// 	 * Illegal NFS file handle.
+	// 	 */
+	// 	EBADHANDLE = 10001,
+	// }
 
-		resolveContents(resource: Uri): string | Thenable<string>;
-		writeContents(resource: Uri, contents: string): void | Thenable<void>;
+	export enum FileChangeType {
+		Updated = 0,
+		Added = 1,
+		Deleted = 2
+	}
+
+	export interface FileChange {
+		type: FileChangeType;
+		resource: Uri;
+	}
+
+	export enum FileType {
+		File = 0,
+		Dir = 1,
+		Symlink = 2
+	}
+
+	export interface FileStat {
+		id: number | string;
+		mtime: number;
+		// atime: number;
+		size: number;
+		type: FileType;
+	}
+
+	export interface TextSearchQuery {
+		pattern: string;
+		isRegex?: boolean;
+		isCaseSensitive?: boolean;
+		isWordMatch?: boolean;
+	}
+
+	export interface TextSearchOptions {
+		includes: GlobPattern[];
+		excludes: GlobPattern[];
+	}
+
+	export interface TextSearchResult {
+		uri: Uri;
+		range: Range;
+		preview: { leading: string, matching: string, trailing: string };
+	}
+
+	// todo@joh discover files etc
+	// todo@joh CancellationToken everywhere
+	// todo@joh add open/close calls?
+	export interface FileSystemProvider {
+
+		readonly onDidChange?: Event<FileChange[]>;
+
+		// todo@joh - remove this
+		readonly root?: Uri;
+
+		// more...
+		//
+		utimes(resource: Uri, mtime: number, atime: number): Thenable<FileStat>;
+
+		stat(resource: Uri): Thenable<FileStat>;
+
+		read(resource: Uri, offset: number, length: number, progress: Progress<Uint8Array>): Thenable<number>;
+
+		// todo@joh - have an option to create iff not exist
+		// todo@remote
+		// offset - byte offset to start
+		// count - number of bytes to write
+		// Thenable<number> - number of bytes actually written
+		write(resource: Uri, content: Uint8Array): Thenable<void>;
+
+		// todo@remote
+		// Thenable<FileStat>
+		move(resource: Uri, target: Uri): Thenable<FileStat>;
+
+		// todo@remote
+		// helps with performance bigly
+		// copy?(from: Uri, to: Uri): Thenable<void>;
+
+		// todo@remote
+		// Thenable<FileStat>
+		mkdir(resource: Uri): Thenable<FileStat>;
+
+		readdir(resource: Uri): Thenable<[Uri, FileStat][]>;
+
+		// todo@remote
+		// ? merge both
+		// ? recursive del
+		rmdir(resource: Uri): Thenable<void>;
+		unlink(resource: Uri): Thenable<void>;
+
+		// todo@remote
+		// create(resource: Uri): Thenable<FileStat>;
+
+		// find files by names
+		// todo@joh, move into its own provider
+		findFiles?(query: string, progress: Progress<Uri>, token: CancellationToken): Thenable<void>;
+		provideTextSearchResults?(query: TextSearchQuery, options: TextSearchOptions, progress: Progress<TextSearchResult>, token: CancellationToken): Thenable<void>;
 	}
 
 	export namespace workspace {
+		export function registerFileSystemProvider(scheme: string, provider: FileSystemProvider): Disposable;
 
-		export function registerFileSystemProvider(authority: string, provider: FileSystemProvider): Disposable;
+		/**
+		 * This method replaces `deleteCount` [workspace folders](#workspace.workspaceFolders) starting at index `start`
+		 * by an optional set of `workspaceFoldersToAdd` on the `vscode.workspace.workspaceFolders` array. This "splice"
+		 * behavior can be used to add, remove and change workspace folders in a single operation.
+		 *
+		 * If the first workspace folder is added, removed or changed, the currently executing extensions (including the
+		 * one that called this method) will be terminated and restarted so that the (deprecated) `rootPath` property is
+		 * updated to point to the first workspace folder.
+		 *
+		 * Use the [`onDidChangeWorkspaceFolders()`](#onDidChangeWorkspaceFolders) event to get notified when the
+		 * workspace folders have been updated.
+		 *
+		 * **Example:** adding a new workspace folder at the end of workspace folders
+		 * ```typescript
+		 * workspace.updateWorkspaceFolders(workspace.workspaceFolders ? workspace.workspaceFolders.length : 0, null, { uri: ...});
+		 * ```
+		 *
+		 * **Example:** removing the first workspace folder
+		 * ```typescript
+		 * workspace.updateWorkspaceFolders(0, 1);
+		 * ```
+		 *
+		 * **Example:** replacing an existing workspace folder with a new one
+		 * ```typescript
+		 * workspace.updateWorkspaceFolders(0, 1, { uri: ...});
+		 * ```
+		 *
+		 * It is valid to remove an existing workspace folder and add it again with a different name
+		 * to rename that folder.
+		 *
+		 * **Note:** it is not valid to call [updateWorkspaceFolders()](#updateWorkspaceFolders) multiple times
+		 * without waiting for the [`onDidChangeWorkspaceFolders()`](#onDidChangeWorkspaceFolders) to fire.
+		 *
+		 * @param start the zero-based location in the list of currently opened [workspace folders](#WorkspaceFolder)
+		 * from which to start deleting workspace folders.
+		 * @param deleteCount the optional number of workspace folders to remove.
+		 * @param workspaceFoldersToAdd the optional variable set of workspace folders to add in place of the deleted ones.
+		 * Each workspace is identified with a mandatory URI and an optional name.
+		 * @return true if the operation was successfully started and false otherwise if arguments were used that would result
+		 * in invalid workspace folder state (e.g. 2 folders with the same URI).
+		 */
+		export function updateWorkspaceFolders(start: number, deleteCount: number, ...workspaceFoldersToAdd: { uri: Uri, name?: string }[]): boolean;
 	}
 
 	export namespace window {
@@ -55,222 +236,349 @@ declare module 'vscode' {
 		export function registerDiffInformationCommand(command: string, callback: (diff: LineChange[], ...args: any[]) => any, thisArg?: any): Disposable;
 	}
 
-	/**
-	 * Namespace for handling credentials.
-	 */
-	export namespace credentials {
+	//#region decorations
+
+	//todo@joh -> make class
+	export interface DecorationData {
+		priority?: number;
+		title?: string;
+		bubble?: boolean;
+		abbreviation?: string;
+		color?: ThemeColor;
+		source?: string;
+	}
+
+	export interface SourceControlResourceDecorations {
+		source?: string;
+		letter?: string;
+		color?: ThemeColor;
+	}
+
+	export interface DecorationProvider {
+		onDidChangeDecorations: Event<undefined | Uri | Uri[]>;
+		provideDecoration(uri: Uri, token: CancellationToken): ProviderResult<DecorationData>;
+	}
+
+	export namespace window {
+		export function registerDecorationProvider(provider: DecorationProvider): Disposable;
+	}
+
+	//#endregion
+
+	export namespace debug {
 
 		/**
-		 * Read a previously stored secret from the credential store.
+		 * List of breakpoints.
 		 *
-		 * @param service The service of the credential.
-		 * @param account The account of the credential.
-		 * @return A promise for the secret of the credential.
+		 * @readonly
 		 */
-		export function readSecret(service: string, account: string): Thenable<string | undefined>;
+		export let breakpoints: Breakpoint[];
 
 		/**
-		 * Write a secret to the credential store.
-		 *
-		 * @param service The service of the credential.
-		 * @param account The account of the credential.
-		 * @param secret The secret of the credential to write to the credential store.
-		 * @return A promise indicating completion of the operation.
+		 * An event that is emitted when a breakpoint is added, removed, or changed.
 		 */
-		export function writeSecret(service: string, account: string, secret: string): Thenable<void>;
+		export const onDidChangeBreakpoints: Event<BreakpointsChangeEvent>;
 
 		/**
-		 * Delete a previously stored secret from the credential store.
-		 *
-		 * @param service The service of the credential.
-		 * @param account The account of the credential.
-		 * @return A promise resolving to true if there was a secret for that service and account.
+		 * Add breakpoints.
+		 * @param breakpoints The breakpoints to add.
+		*/
+		export function addBreakpoints(breakpoints: Breakpoint[]): void;
+
+		/**
+		 * Remove breakpoints.
+		 * @param breakpoints The breakpoints to remove.
 		 */
-		export function deleteSecret(service: string, account: string): Thenable<boolean>;
+		export function removeBreakpoints(breakpoints: Breakpoint[]): void;
 	}
 
 	/**
-	 * Represents a color in RGBA space.
+	 * An event describing a change to the set of [breakpoints](#debug.Breakpoint).
 	 */
-	export class Color {
+	export interface BreakpointsChangeEvent {
+		/**
+		 * Added breakpoints.
+		 */
+		readonly added: Breakpoint[];
 
 		/**
-		 * The red component of this color in the range [0-1].
+		 * Removed breakpoints.
 		 */
-		readonly red: number;
+		readonly removed: Breakpoint[];
 
 		/**
-		 * The green component of this color in the range [0-1].
+		 * Changed breakpoints.
 		 */
-		readonly green: number;
-
-		/**
-		 * The blue component of this color in the range [0-1].
-		 */
-		readonly blue: number;
-
-		/**
-		 * The alpha component of this color in the range [0-1].
-		 */
-		readonly alpha: number;
-
-		constructor(red: number, green: number, blue: number, alpha: number);
-
-		/**
-		 * Creates a color from the HSLA space.
-		 *
-		 * @param hue The hue component in the range [0-1].
-		 * @param saturation The saturation component in the range [0-1].
-		 * @param luminance The luminance component in the range [0-1].
-		 * @param alpha The alpha component in the range [0-1].
-		 */
-		static fromHSLA(hue: number, saturation: number, luminance: number, alpha: number): Color;
-
-		/**
-		 * Creates a color by from a hex string. Supported formats are: #RRGGBB, #RRGGBBAA, #RGB, #RGBA.
-		 * <code>null</code> is returned if the string does not match one of the supported formats.
-		 * @param hex a string to parse
-		 */
-		static fromHex(hex: string): Color | null;
+		readonly changed: Breakpoint[];
 	}
 
 	/**
-	 * A color format is either a single format or a combination of two
-	 * formats: an opaque one and a transparent one. The format itself
-	 * is a string representation of how the color can be formatted. It
-	 * supports the use of placeholders, similar to how snippets work.
-	 * Each placeholder, surrounded by curly braces `{}`, requires a
-	 * variable name and can optionally specify a number format and range
-	 * for that variable's value.
-	 *
-	 * Supported variables:
-	 *  - `red`
-	 *  - `green`
-	 *  - `blue`
-	 *  - `hue`
-	 *  - `saturation`
-	 *  - `luminance`
-	 *  - `alpha`
-	 *
-	 * Supported number formats:
-	 *  - `f`, float with 2 decimal points. This is the default format. Default range is `[0-1]`.
-	 *  - `Xf`, float with `X` decimal points. Default range is `[0-1]`.
-	 *  - `d`, decimal. Default range is `[0-255]`.
-	 *  - `x`, `X`, hexadecimal. Default range is `[00-FF]`.
-	 *
-	 * The default number format is float. The default number range is `[0-1]`.
-	 *
-	 * As an example, take the color `Color(1, 0.5, 0, 1)`. Here's how
-	 * different formats would format it:
-	 *
-	 *  - CSS RGB
-	 *   - Format: `rgb({red:d[0-255]}, {green:d[0-255]}, {blue:d[0-255]})`
-	 *   - Output: `rgb(255, 127, 0)`
-	 *
-	 *  - CSS RGBA
-	 *   - Format: `rgba({red:d[0-255]}, {green:d[0-255]}, {blue:d[0-255]}, {alpha})`
-	 *   - Output: `rgba(255, 127, 0, 1)`
-	 *
-	 *  - CSS Hexadecimal
-	 *   - Format: `#{red:X}{green:X}{blue:X}`
-	 *   - Output: `#FF7F00`
-	 *
-	 *  - CSS HSLA
-	 *   - Format: `hsla({hue:d[0-360]}, {saturation:d[0-100]}%, {luminance:d[0-100]}%, {alpha})`
-	 *   - Output: `hsla(30, 100%, 50%, 1)`
+	 * The base class of all breakpoint types.
 	 */
-	export type ColorFormat = string | { opaque: string, transparent: string };
-
-	/**
-	 * Represents a color range from a document.
-	 */
-	export class ColorRange {
-
+	export class Breakpoint {
 		/**
-		 * The range in the document where this color appers.
+		 * Is breakpoint enabled.
 		 */
-		range: Range;
-
+		readonly enabled: boolean;
 		/**
-		 * The actual color value for this color range.
+		 * An optional expression for conditional breakpoints.
 		 */
-		color: Color;
-
+		readonly condition?: string;
 		/**
-		 * The other formats this color range supports the color to be formatted in.
+		 * An optional expression that controls how many hits of the breakpoint are ignored.
 		 */
-		availableFormats: ColorFormat[];
+		readonly hitCondition?: string;
 
-		/**
-		 * Creates a new color range.
-		 *
-		 * @param range The range the color appears in. Must not be empty.
-		 * @param color The value of the color.
-		 * @param format The format in which this color is currently formatted.
-		 * @param availableFormats The other formats this color range supports the color to be formatted in.
-		 */
-		constructor(range: Range, color: Color, availableFormats: ColorFormat[]);
+		protected constructor(enabled?: boolean, condition?: string, hitCondition?: string);
 	}
 
 	/**
-	 * The document color provider defines the contract between extensions and feature of
-	 * picking and modifying colors in the editor.
+	 * A breakpoint specified by a source location.
 	 */
-	export interface DocumentColorProvider {
+	export class SourceBreakpoint extends Breakpoint {
+		/**
+		 * The source and line position of this breakpoint.
+		 */
+		readonly location: Location;
 
 		/**
-		 * Provide colors for the given document.
-		 *
-		 * @param document The document in which the command was invoked.
+		 * Create a new breakpoint for a source location.
+		 */
+		constructor(location: Location, enabled?: boolean, condition?: string, hitCondition?: string);
+	}
+
+	/**
+	 * A breakpoint specified by a function name.
+	 */
+	export class FunctionBreakpoint extends Breakpoint {
+		/**
+		 * The name of the function to which this breakpoint is attached.
+		 */
+		readonly functionName: string;
+
+		/**
+		 * Create a new function breakpoint.
+		 */
+		constructor(functionName: string, enabled?: boolean, condition?: string, hitCondition?: string);
+	}
+
+	/**
+	 * Represents a debug adapter executable and optional arguments passed to it.
+	 */
+	export class DebugAdapterExecutable {
+		/**
+		 * The command path of the debug adapter executable.
+		 * A command must be either an absolute path or the name of an executable looked up via the PATH environment variable.
+		 * The special value 'node' will be mapped to VS Code's built-in node runtime.
+		 */
+		readonly command: string;
+
+		/**
+		 * Optional arguments passed to the debug adapter executable.
+		 */
+		readonly args: string[];
+
+		/**
+		 * Create a new debug adapter specification.
+		 */
+		constructor(command: string, args?: string[]);
+	}
+
+	export interface DebugConfigurationProvider {
+		/**
+		 * This optional method is called just before a debug adapter is started to determine its excutable path and arguments.
+		 * Registering more than one debugAdapterExecutable for a type results in an error.
+		 * @param folder The workspace folder from which the configuration originates from or undefined for a folderless setup.
 		 * @param token A cancellation token.
-		 * @return An array of [color ranges](#ColorRange) or a thenable that resolves to such. The lack of a result
-		 * can be signaled by returning `undefined`, `null`, or an empty array.
+		 * @return a [debug adapter's executable and optional arguments](#DebugAdapterExecutable) or undefined.
 		 */
-		provideDocumentColors(document: TextDocument, token: CancellationToken): ProviderResult<ColorRange[]>;
+		debugAdapterExecutable?(folder: WorkspaceFolder | undefined, token?: CancellationToken): ProviderResult<DebugAdapterExecutable>;
+	}
+
+	/**
+	 * The severity level of a log message
+	 */
+	export enum LogLevel {
+		Trace = 1,
+		Debug = 2,
+		Info = 3,
+		Warning = 4,
+		Error = 5,
+		Critical = 6,
+		Off = 7
+	}
+
+	/**
+	 * A logger for writing to an extension's log file, and accessing its dedicated log directory.
+	 */
+	export interface Logger {
+		readonly onDidChangeLogLevel: Event<LogLevel>;
+		readonly currentLevel: LogLevel;
+		readonly logDirectory: Thenable<string>;
+
+		trace(message: string, ...args: any[]): void;
+		debug(message: string, ...args: any[]): void;
+		info(message: string, ...args: any[]): void;
+		warn(message: string, ...args: any[]): void;
+		error(message: string | Error, ...args: any[]): void;
+		critical(message: string | Error, ...args: any[]): void;
+	}
+
+	export interface ExtensionContext {
+		/**
+		 * This extension's logger
+		 */
+		logger: Logger;
+	}
+
+	export interface RenameInitialValue {
+		range: Range;
+		text?: string;
 	}
 
 	export namespace languages {
-		export function registerColorProvider(selector: DocumentSelector, provider: DocumentColorProvider): Disposable;
-	}
-
-	export namespace debug {
-		/**
-		 * Register a [debug configuration provider](#DebugConfigurationProvider) for a specifc debug type.
-		 * More than one provider can be registered for the same type.
-		 *
-		 * @param type The debug type for which the provider is registered.
-		 * @param provider The [debug configuration provider](#DebugConfigurationProvider) to register.
-		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
-		 */
-		export function registerDebugConfigurationProvider(debugType: string, provider: DebugConfigurationProvider): Disposable;
+		export interface RenameProvider2 extends RenameProvider {
+			resolveInitialRenameValue?(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<RenameInitialValue>;
+		}
 	}
 
 	/**
-	 * A debug configuration provider allows to add the initial debug configurations to a newly created launch.json
-	 * and allows to resolve a launch configuration before it is used to start a new debug session.
-	 * A debug configuration provider is registered via #workspace.registerDebugConfigurationProvider.
+	 * Represents the validation type of the Source Control input.
 	 */
-	export interface DebugConfigurationProvider {
-		/**
-		 * Provides initial [debug configuration](#DebugConfiguration). If more than one debug configuration provider is
-		 * registered for the same type, debug configurations are concatenated in arbitrary order.
-		 *
-		 * @param folder The workspace folder for which the configurations are used or undefined for a folderless setup.
-		 * @param token A cancellation token.
-		 * @return An array of [debug configurations](#DebugConfiguration).
-		 */
-		provideDebugConfigurations?(folder: WorkspaceFolder | undefined, token?: CancellationToken): ProviderResult<DebugConfiguration[]>;
+	export enum SourceControlInputBoxValidationType {
 
 		/**
-		 * Resolves a [debug configuration](#DebugConfiguration) by filling in missing values or by adding/changing/removing attributes.
-		 * If more than one debug configuration provider is registered for the same type, the resolveDebugConfiguration calls are chained
-		 * in arbitrary order and the initial debug configuration is piped through the chain.
-		 *
-		 * @param folder The workspace folder from which the configuration originates from or undefined for a folderless setup.
-		 * @param debugConfiguration The [debug configuration](#DebugConfiguration) to resolve.
-		 * @param token A cancellation token.
-		 * @return The resolved debug configuration.
+		 * Something not allowed by the rules of a language or other means.
 		 */
-		resolveDebugConfiguration?(folder: WorkspaceFolder | undefined, debugConfiguration: DebugConfiguration, token?: CancellationToken): ProviderResult<DebugConfiguration>;
+		Error = 0,
+
+		/**
+		 * Something suspicious but allowed.
+		 */
+		Warning = 1,
+
+		/**
+		 * Something to inform about but not a problem.
+		 */
+		Information = 2
+	}
+
+	export interface SourceControlInputBoxValidation {
+
+		/**
+		 * The validation message to display.
+		 */
+		readonly message: string;
+
+		/**
+		 * The validation type.
+		 */
+		readonly type: SourceControlInputBoxValidationType;
+	}
+
+	/**
+	 * Represents the input box in the Source Control viewlet.
+	 */
+	export interface SourceControlInputBox {
+
+		/**
+		 * A validation function for the input box. It's possible to change
+		 * the validation provider simply by setting this property to a different function.
+		 */
+		validateInput?(value: string, cursorPosition: number): ProviderResult<SourceControlInputBoxValidation | undefined | null>;
+	}
+
+	/**
+	 * Content settings for a webview.
+	 */
+	export interface WebviewOptions {
+		/**
+		 * Should scripts be enabled in the webview?
+		 *
+		 * Defaults to false (scripts-disabled).
+		 */
+		readonly enableScripts?: boolean;
+
+		/**
+		 * Should command uris be enabled?
+		 *
+		 * Defaults to false.
+		 */
+		readonly enableCommandUris?: boolean;
+
+		/**
+		 * Should the webview content be kept arount even when the webview is no longer visible?
+		 *
+		 * Normally a webview content is created when the webview becomes visible
+		 * and destroyed when the webview is hidden. Apps that have complex state
+		 * or UI can set the `keepAlive` property to make VS Code keep the webview
+		 * content around, even when the webview itself is no longer visible. When
+		 * the webview becomes visible again, the content is automatically restored
+		 * in the exact same state it was in originally
+		 *
+		 * `keepAlive` has a high memory overhead and should only be used if your
+		 * webview content cannot be quickly saved and restored.
+		 */
+		readonly keepAlive?: boolean;
+	}
+
+	/**
+	 * A webview is an editor with html content, like an iframe.
+	 */
+	export interface Webview {
+		/**
+		 * Title of the webview.
+		 */
+		title: string;
+
+		/**
+		 * Contents of the webview.
+		 */
+		html: string;
+
+		/**
+		 * Content settings for the webview.
+		 */
+		options: WebviewOptions;
+
+		/**
+		 * Fired when the webview content posts a message.
+		 */
+		readonly onMessage: Event<any>;
+
+		/**
+		 * Fired when the webview becomes the active editor.
+		 */
+		readonly onBecameActive: Event<void>;
+
+		/**
+		 * Fired when the webview stops being the active editor
+		 */
+		readonly onBecameInactive: Event<void>;
+
+		/**
+		 * Post a message to the webview content.
+		 *
+		 * Messages are only develivered if the webview is visible.
+		 *
+		 * @param message Body of the message.
+		 */
+		postMessage(message: any): Thenable<any>;
+
+		/**
+		 * Dispose the webview.
+		 */
+		dispose(): any;
+	}
+
+	namespace window {
+		/**
+		 * Create and show a new webview.
+		 *
+		 * @param title Title of the webview.
+		 * @param column Editor column to show the new webview in.
+		 * @param options Webview content options.
+		 */
+		export function createWebview(title: string, column: ViewColumn, options: WebviewOptions): Webview;
 	}
 }

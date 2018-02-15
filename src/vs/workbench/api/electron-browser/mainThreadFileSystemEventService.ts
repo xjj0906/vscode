@@ -6,8 +6,8 @@
 
 import { FileChangeType, IFileService } from 'vs/platform/files/common/files';
 import { ExtHostContext, ExtHostFileSystemEventServiceShape, FileSystemEvents, IExtHostContext } from '../node/extHost.protocol';
-import { IDisposable } from "vs/base/common/lifecycle";
-import { extHostCustomer } from "vs/workbench/api/electron-browser/extHostCustomers";
+import { IDisposable } from 'vs/base/common/lifecycle';
+import { extHostCustomer } from 'vs/workbench/api/electron-browser/extHostCustomers';
 
 @extHostCustomer
 export class MainThreadFileSystemEventService {
@@ -19,7 +19,7 @@ export class MainThreadFileSystemEventService {
 		@IFileService fileService: IFileService
 	) {
 
-		const proxy: ExtHostFileSystemEventServiceShape = extHostContext.get(ExtHostContext.ExtHostFileSystemEventService);
+		const proxy: ExtHostFileSystemEventServiceShape = extHostContext.getProxy(ExtHostContext.ExtHostFileSystemEventService);
 		const events: FileSystemEvents = {
 			created: [],
 			changed: [],

@@ -28,11 +28,16 @@
 	margin-top: 7px; /* Center the select box */
 }
 
-#monaco-workbench-drop-overlay {
-	position: absolute;
-	top: 0;
-	left: 0;
-	height: 100%;
-	width: 100%;
-	z-index: 10000;
+.monaco-font-aliasing-antialiased {
+	-webkit-font-smoothing: antialiased;
+}
+
+.monaco-font-aliasing-none {
+	-webkit-font-smoothing: none;
+}
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+	.monaco-font-aliasing-auto {
+		-webkit-font-smoothing: antialiased;
+	}
 }

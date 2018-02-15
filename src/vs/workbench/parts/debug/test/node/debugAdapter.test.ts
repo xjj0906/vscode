@@ -6,9 +6,12 @@
 import * as assert from 'assert';
 import * as paths from 'vs/base/common/paths';
 import * as platform from 'vs/base/common/platform';
-import { IRawAdapter } from 'vs/workbench/parts/debug/common/debug';
+import { IRawAdapter, IAdapterExecutable, IConfigurationManager } from 'vs/workbench/parts/debug/common/debug';
 import { Adapter } from 'vs/workbench/parts/debug/node/debugAdapter';
 import { TestConfigurationService } from 'vs/platform/configuration/test/common/testConfigurationService';
+import uri from 'vs/base/common/uri';
+import { TPromise } from 'vs/base/common/winjs.base';
+
 
 suite('Debug - Adapter', () => {
 	let adapter: Adapter;
@@ -41,10 +44,15 @@ suite('Debug - Adapter', () => {
 			}
 		]
 	};
+	const configurationManager = {
+		debugAdapterExecutable(folderUri: uri | undefined, type: string): TPromise<IAdapterExecutable | undefined> {
+			return TPromise.as(undefined);
+		}
+	};
 
 	setup(() => {
-		adapter = new Adapter(rawAdapter, { extensionFolderPath, id: 'adapter', name: 'myAdapter', version: '1.0.0', publisher: 'vscode', isBuiltin: false, engines: null },
-			null, new TestConfigurationService(), null);
+		adapter = new Adapter(<IConfigurationManager>configurationManager, rawAdapter, { extensionFolderPath, id: 'adapter', name: 'myAdapter', version: '1.0.0', publisher: 'vscode', isBuiltin: false, engines: null },
+			new TestConfigurationService(), null);
 	});
 
 	teardown(() => {
@@ -126,7 +134,7 @@ suite('Debug - Adapter', () => {
 			'	]',
 			'}'].join('\n');
 
-		return adapter.getInitialConfigurationContent(null).then(content => {
+		return adapter.getInitialConfigurationContent().then(content => {
 			assert.equal(content, expected);
 		}, err => assert.fail());
 	});

@@ -12,20 +12,22 @@ import { Action, IAction } from 'vs/base/common/actions';
 import { Builder, Dimension } from 'vs/base/browser/builder';
 import { IActionItem, Separator } from 'vs/base/browser/ui/actionbar/actionbar';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IContextMenuService, IContextViewService } from 'vs/platform/contextview/browser/contextView';
+import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { ITerminalService, ITerminalFont, TERMINAL_PANEL_ID } from 'vs/workbench/parts/terminal/common/terminal';
+import { ITerminalService, TERMINAL_PANEL_ID } from 'vs/workbench/parts/terminal/common/terminal';
 import { IThemeService, ITheme } from 'vs/platform/theme/common/themeService';
 import { TerminalFindWidget } from './terminalFindWidget';
-import { ansiColorIdentifiers, TERMINAL_BACKGROUND_COLOR, TERMINAL_FOREGROUND_COLOR, TERMINAL_CURSOR_FOREGROUND_COLOR, TERMINAL_CURSOR_BACKGROUND_COLOR } from './terminalColorRegistry';
-import { ColorIdentifier, editorHoverBackground, editorHoverBorder, editorForeground } from 'vs/platform/theme/common/colorRegistry';
-import { PANEL_BACKGROUND } from 'vs/workbench/common/theme';
-import { KillTerminalAction, CreateNewTerminalAction, SwitchTerminalInstanceAction, SwitchTerminalInstanceActionItem, CopyTerminalSelectionAction, TerminalPasteAction, ClearTerminalAction, SelectAllTerminalAction } from 'vs/workbench/parts/terminal/electron-browser/terminalActions';
+import { editorHoverBackground, editorHoverBorder, editorForeground } from 'vs/platform/theme/common/colorRegistry';
+import { KillTerminalAction, SwitchTerminalAction, SwitchTerminalActionItem, CopyTerminalSelectionAction, TerminalPasteAction, ClearTerminalAction, SelectAllTerminalAction, CreateNewTerminalAction, SplitVerticalTerminalAction } from 'vs/workbench/parts/terminal/electron-browser/terminalActions';
 import { Panel } from 'vs/workbench/browser/panel';
 import { StandardMouseEvent } from 'vs/base/browser/mouseEvent';
 import { TPromise } from 'vs/base/common/winjs.base';
 import URI from 'vs/base/common/uri';
+import { PANEL_BACKGROUND, PANEL_BORDER } from 'vs/workbench/common/theme';
+import { TERMINAL_BACKGROUND_COLOR, TERMINAL_BORDER_COLOR } from 'vs/workbench/parts/terminal/electron-browser/terminalColorRegistry';
+import { DataTransfers } from 'vs/base/browser/dnd';
+import { ILifecycleService, LifecyclePhase } from 'vs/platform/lifecycle/common/lifecycle';
 
 export class TerminalPanel extends Panel {
 
@@ -33,7 +35,6 @@ export class TerminalPanel extends Panel {
 	private _copyContextMenuAction: IAction;
 	private _contextMenuActions: IAction[];
 	private _cancelContextMenu: boolean = false;
-	private _font: ITerminalFont;
 	private _fontStyleElement: HTMLElement;
 	private _parentDomElement: HTMLElement;
 	private _terminalContainer: HTMLElement;
@@ -43,9 +44,9 @@ export class TerminalPanel extends Panel {
 	constructor(
 		@IConfigurationService private _configurationService: IConfigurationService,
 		@IContextMenuService private _contextMenuService: IContextMenuService,
-		@IContextViewService private _contextViewService: IContextViewService,
 		@IInstantiationService private _instantiationService: IInstantiationService,
 		@ITerminalService private _terminalService: ITerminalService,
+		@ILifecycleService private _lifecycleService: ILifecycleService,
 		@IThemeService protected themeService: IThemeService,
 		@ITelemetryService telemetryService: ITelemetryService
 	) {
@@ -74,7 +75,11 @@ export class TerminalPanel extends Panel {
 		this._terminalService.setContainers(this.getContainer().getHTMLElement(), this._terminalContainer);
 
 		this._register(this.themeService.onThemeChange(theme => this._updateTheme(theme)));
-		this._register(this._configurationService.onDidUpdateConfiguration(() => this._updateFont()));
+		this._register(this._configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('terminal.integrated') || e.affectsConfiguration('editor.fontFamily')) {
+				this._updateFont();
+			}
+		}));
 		this._updateFont();
 		this._updateTheme();
 
@@ -87,9 +92,7 @@ export class TerminalPanel extends Panel {
 		if (!dimension) {
 			return;
 		}
-		this._terminalService.terminalInstances.forEach((t) => {
-			t.layout(dimension);
-		});
+		this._terminalService.terminalTabs.forEach(t => t.layout(dimension.width, dimension.height));
 	}
 
 	public setVisible(visible: boolean): TPromise<void> {
@@ -99,11 +102,20 @@ export class TerminalPanel extends Panel {
 				this._updateTheme();
 			} else {
 				return super.setVisible(visible).then(() => {
-					const instance = this._terminalService.createInstance();
-					if (instance) {
-						this._updateFont();
-						this._updateTheme();
-					}
+					// Ensure the "Running" lifecycle face has been reached before creating the
+					// first terminal.
+					this._lifecycleService.when(LifecyclePhase.Running).then(() => {
+						// Allow time for the panel to display if it is being shown
+						// for the first time. If there is not wait here the initial
+						// dimensions of the pty could be wrong.
+						setTimeout(() => {
+							const instance = this._terminalService.createInstance();
+							if (instance) {
+								this._updateFont();
+								this._updateTheme();
+							}
+						}, 0);
+					});
 					return TPromise.as(void 0);
 				});
 			}
@@ -114,7 +126,7 @@ export class TerminalPanel extends Panel {
 	public getActions(): IAction[] {
 		if (!this._actions) {
 			this._actions = [
-				this._instantiationService.createInstance(SwitchTerminalInstanceAction, SwitchTerminalInstanceAction.ID, SwitchTerminalInstanceAction.LABEL),
+				this._instantiationService.createInstance(SwitchTerminalAction, SwitchTerminalAction.ID, SwitchTerminalAction.LABEL),
 				this._instantiationService.createInstance(CreateNewTerminalAction, CreateNewTerminalAction.ID, CreateNewTerminalAction.PANEL_LABEL),
 				this._instantiationService.createInstance(KillTerminalAction, KillTerminalAction.ID, KillTerminalAction.PANEL_LABEL)
 			];
@@ -129,13 +141,15 @@ export class TerminalPanel extends Panel {
 		if (!this._contextMenuActions) {
 			this._copyContextMenuAction = this._instantiationService.createInstance(CopyTerminalSelectionAction, CopyTerminalSelectionAction.ID, nls.localize('copy', "Copy"));
 			this._contextMenuActions = [
-				this._instantiationService.createInstance(CreateNewTerminalAction, CreateNewTerminalAction.ID, nls.localize('createNewTerminal', "New Terminal")),
+				this._instantiationService.createInstance(CreateNewTerminalAction, CreateNewTerminalAction.ID, CreateNewTerminalAction.PANEL_LABEL),
 				new Separator(),
 				this._copyContextMenuAction,
 				this._instantiationService.createInstance(TerminalPasteAction, TerminalPasteAction.ID, nls.localize('paste', "Paste")),
 				this._instantiationService.createInstance(SelectAllTerminalAction, SelectAllTerminalAction.ID, nls.localize('selectAll', "Select All")),
 				new Separator(),
-				this._instantiationService.createInstance(ClearTerminalAction, ClearTerminalAction.ID, nls.localize('clear', "Clear"))
+				this._instantiationService.createInstance(ClearTerminalAction, ClearTerminalAction.ID, nls.localize('clear', "Clear")),
+				new Separator(),
+				this._instantiationService.createInstance(SplitVerticalTerminalAction, SplitVerticalTerminalAction.ID, nls.localize('splitVertically', "Split Vertically"))
 			];
 			this._contextMenuActions.forEach(a => {
 				this._register(a);
@@ -147,8 +161,8 @@ export class TerminalPanel extends Panel {
 	}
 
 	public getActionItem(action: Action): IActionItem {
-		if (action.id === SwitchTerminalInstanceAction.ID) {
-			return this._instantiationService.createInstance(SwitchTerminalInstanceActionItem, action);
+		if (action.id === SwitchTerminalAction.ID) {
+			return this._instantiationService.createInstance(SwitchTerminalActionItem, action);
 		}
 
 		return super.getActionItem(action);
@@ -174,6 +188,14 @@ export class TerminalPanel extends Panel {
 		this._findWidget.hide();
 	}
 
+	public showNextFindTermFindWidget(): void {
+		this._findWidget.showNextFindTerm();
+	}
+
+	public showPreviousFindTermFindWidget(): void {
+		this._findWidget.showPreviousFindTerm();
+	}
+
 	private _attachEventListeners(): void {
 		this._register(dom.addDisposableListener(this._parentDomElement, 'mousedown', (event: MouseEvent) => {
 			if (this._terminalService.terminalInstances.length === 0) {
@@ -185,7 +207,7 @@ export class TerminalPanel extends Panel {
 				// occurs on the selection itself.
 				this._terminalService.getActiveInstance().focus();
 			} else if (event.which === 3) {
-				if (this._terminalService.configHelper.config.rightClickCopyPaste) {
+				if (this._terminalService.configHelper.config.rightClickBehavior === 'copyPaste') {
 					let terminal = this._terminalService.getActiveInstance();
 					if (terminal.hasSelection()) {
 						terminal.copySelection();
@@ -206,6 +228,20 @@ export class TerminalPanel extends Panel {
 				}
 			}
 		}));
+		this._register(dom.addDisposableListener(this._parentDomElement, 'mouseup', (event: MouseEvent) => {
+			if (this._configurationService.getValue('terminal.integrated.copyOnSelection')) {
+				if (this._terminalService.terminalInstances.length === 0) {
+					return;
+				}
+
+				if (event.which === 1) {
+					let terminal = this._terminalService.getActiveInstance();
+					if (terminal.hasSelection()) {
+						terminal.copySelection();
+					}
+				}
+			}
+		}));
 		this._register(dom.addDisposableListener(this._parentDomElement, 'contextmenu', (event: MouseEvent) => {
 			if (!this._cancelContextMenu) {
 				const standardEvent = new StandardMouseEvent(event);
@@ -217,16 +253,6 @@ export class TerminalPanel extends Panel {
 				});
 			}
 			this._cancelContextMenu = false;
-		}));
-		this._register(dom.addDisposableListener(this._parentDomElement, 'click', (event) => {
-			if (event.which === 3) {
-				return;
-			}
-
-			const instance = this._terminalService.getActiveInstance();
-			if (instance) {
-				this._terminalService.getActiveInstance().focus();
-			}
 		}));
 		this._register(dom.addDisposableListener(this._parentDomElement, 'keyup', (event: KeyboardEvent) => {
 			if (event.keyCode === 27) {
@@ -240,21 +266,22 @@ export class TerminalPanel extends Panel {
 					return;
 				}
 
-				// Check if the file was dragged from the tree explorer
-				let uri = e.dataTransfer.getData('URL');
-				if (uri) {
-					uri = URI.parse(uri).path;
+				// Check if files were dragged from the tree explorer
+				let path: string;
+				let resources = e.dataTransfer.getData(DataTransfers.RESOURCES);
+				if (resources) {
+					path = URI.parse(JSON.parse(resources)[0]).path;
 				} else if (e.dataTransfer.files.length > 0) {
 					// Check if the file was dragged from the filesystem
-					uri = URI.file(e.dataTransfer.files[0].path).fsPath;
+					path = URI.file(e.dataTransfer.files[0].path).fsPath;
 				}
 
-				if (!uri) {
+				if (!path) {
 					return;
 				}
 
 				const terminal = this._terminalService.getActiveInstance();
-				terminal.sendText(TerminalPanel.preparePathForTerminal(uri), false);
+				terminal.sendText(TerminalPanel.preparePathForTerminal(path), false);
 			}
 		}));
 	}
@@ -265,44 +292,15 @@ export class TerminalPanel extends Panel {
 		}
 
 		let css = '';
-		ansiColorIdentifiers.forEach((colorId: ColorIdentifier, index: number) => {
-			if (colorId) { // should not happen, all indices should have a color defined.
-				let color = theme.getColor(colorId);
-				css += `.monaco-workbench .panel.integrated-terminal .xterm .xterm-color-${index} { color: ${color}; }` +
-					`.monaco-workbench .panel.integrated-terminal .xterm .xterm-bg-color-${index} { background-color: ${color}; }`;
-			}
-		});
-		const bgColor = theme.getColor(TERMINAL_BACKGROUND_COLOR);
-		if (bgColor) {
-			css += `.monaco-workbench .panel.integrated-terminal .terminal-outer-container { background-color: ${bgColor}; }`;
-		}
-		const fgColor = theme.getColor(TERMINAL_FOREGROUND_COLOR);
-		if (fgColor) {
-			css += `.monaco-workbench .panel.integrated-terminal .xterm { color: ${fgColor}; }`;
+
+		const backgroundColor = theme.getColor(TERMINAL_BACKGROUND_COLOR) || theme.getColor(PANEL_BACKGROUND);
+		this._terminalContainer.style.backgroundColor = backgroundColor ? backgroundColor.toString() : '';
+
+		const borderColor = theme.getColor(TERMINAL_BORDER_COLOR) || theme.getColor(PANEL_BORDER);
+		if (borderColor) {
+			css += `.monaco-workbench .panel.integrated-terminal .split-view-view:not(:first-child) { border-left-color: ${borderColor.toString()}; }`;
 		}
 
-		const cursorFgColor = theme.getColor(TERMINAL_CURSOR_FOREGROUND_COLOR) || fgColor;
-		if (cursorFgColor) {
-			css += `.monaco-workbench .panel.integrated-terminal .xterm:not(.xterm-cursor-style-underline):not(.xterm-cursor-style-bar).focus .terminal-cursor,` +
-				`.monaco-workbench .panel.integrated-terminal .xterm:not(.xterm-cursor-style-underline):not(.xterm-cursor-style-bar):focus .terminal-cursor { background-color: ${cursorFgColor} }` +
-				`.monaco-workbench .panel.integrated-terminal .xterm:not(.focus):not(:focus) .terminal-cursor { outline-color: ${cursorFgColor}; }` +
-				`.monaco-workbench .panel.integrated-terminal .xterm.xterm-cursor-style-bar .terminal-cursor::before,` +
-				`.monaco-workbench .panel.integrated-terminal .xterm.xterm-cursor-style-underline .terminal-cursor::before { background-color: ${cursorFgColor}; }` +
-				`.monaco-workbench .panel.integrated-terminal .xterm.xterm-cursor-style-bar.focus.xterm-cursor-blink .terminal-cursor::before,` +
-				`.monaco-workbench .panel.integrated-terminal .xterm.xterm-cursor-style-underline.focus.xterm-cursor-blink .terminal-cursor::before { background-color: ${cursorFgColor}; }`;
-		}
-
-		const cursorBgColor = theme.getColor(TERMINAL_CURSOR_BACKGROUND_COLOR) || bgColor || theme.getColor(PANEL_BACKGROUND);
-		if (cursorBgColor) {
-			css += `.monaco-workbench .panel.integrated-terminal .xterm:not(.xterm-cursor-style-underline):not(.xterm-cursor-style-bar).focus .terminal-cursor,` +
-				`.monaco-workbench .panel.integrated-terminal .xterm:not(.xterm-cursor-style-underline):not(.xterm-cursor-style-bar):focus .terminal-cursor { color: ${cursorBgColor} }`;
-		}
-
-		// TODO: Reinstate, see #28397
-		// const selectionColor = theme.getColor(TERMINAL_SELECTION_BACKGROUND_COLOR);
-		// if (selectionColor) {
-		// 	css += `.monaco-workbench .panel.integrated-terminal .xterm .xterm-selection div { background-color: ${selectionColor}; }`;
-		// }
 		// Borrow the editor's hover background for now
 		let hoverBackground = theme.getColor(editorHoverBackground);
 		if (hoverBackground) {
@@ -325,26 +323,9 @@ export class TerminalPanel extends Panel {
 		if (this._terminalService.terminalInstances.length === 0) {
 			return;
 		}
-		let newFont = this._terminalService.configHelper.getFont();
-		dom.toggleClass(this._parentDomElement, 'enable-ligatures', this._terminalService.configHelper.config.fontLigatures);
-		dom.toggleClass(this._parentDomElement, 'disable-bold', !this._terminalService.configHelper.config.enableBold);
-		if (!this._font || this._fontsDiffer(this._font, newFont)) {
-			this._fontStyleElement.innerHTML = '.monaco-workbench .panel.integrated-terminal .xterm {' +
-				`font-family: ${newFont.fontFamily};` +
-				`font-size: ${newFont.fontSize};` +
-				`line-height: ${newFont.lineHeight};` +
-				'}';
-			this._font = newFont;
-		}
+		// TODO: Can we support ligatures?
+		// dom.toggleClass(this._parentDomElement, 'enable-ligatures', this._terminalService.configHelper.config.fontLigatures);
 		this.layout(new Dimension(this._parentDomElement.offsetWidth, this._parentDomElement.offsetHeight));
-	}
-
-	private _fontsDiffer(a: ITerminalFont, b: ITerminalFont): boolean {
-		return a.charHeight !== b.charHeight ||
-			a.charWidth !== b.charWidth ||
-			a.fontFamily !== b.fontFamily ||
-			a.fontSize !== b.fontSize ||
-			a.lineHeight !== b.lineHeight;
 	}
 
 	/**

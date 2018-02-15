@@ -121,17 +121,22 @@ export const tokenColorizationSettingSchema: IJSONSchema = {
 		foreground: {
 			type: 'string',
 			description: nls.localize('schema.token.foreground', 'Foreground color for the token.'),
-			format: 'color',
-			defaultSnippets: [{ body: '${1:#FF0000}' }]
+			format: 'color-hex',
+			default: '#ff0000'
+		},
+		background: {
+			type: 'string',
+			deprecationMessage: nls.localize('schema.token.background.warning', 'Token background colors are currently not supported.')
 		},
 		fontStyle: {
 			type: 'string',
-			description: nls.localize('schema.token.fontStyle', 'Font style of the rule: One or a combination of \'italic\', \'bold\' and \'underline\''),
+			description: nls.localize('schema.token.fontStyle', 'Font style of the rule: \'italic\', \'bold\' or \'underline\' or a combination. The empty string unsets inherited settings.'),
 			pattern: '^(\\s*\\b(italic|bold|underline))*\\s*$',
-			patternErrorMessage: nls.localize('schema.fontStyle.error', 'Font style must be a combination of \'italic\', \'bold\' and \'underline\''),
-			defaultSnippets: [{ body: 'italic' }, { body: 'bold' }, { body: 'underline' }, { body: 'italic bold' }, { body: 'italic underline' }, { body: 'bold underline' }, { body: 'italic bold underline' }]
+			patternErrorMessage: nls.localize('schema.fontStyle.error', 'Font style must be \'italic\', \'bold\' or \'underline\' or a combination or the empty string.'),
+			defaultSnippets: [{ label: nls.localize('schema.token.fontStyle.none', 'None (clear inherited style)'), bodyText: '""' }, { body: 'italic' }, { body: 'bold' }, { body: 'underline' }, { body: 'italic bold' }, { body: 'italic underline' }, { body: 'bold underline' }, { body: 'italic bold underline' }]
 		}
 	},
+	additionalProperties: false,
 	defaultSnippets: [{ body: { foreground: '${1:#FF0000}', fontStyle: '${2:bold}' } }]
 };
 
@@ -171,8 +176,12 @@ export function tokenColorsSchema(description: string): IJSONSchema {
 						}
 					]
 				},
-				settings: tokenColorizationSettingSchema
-			}
+				settings: tokenColorizationSettingSchema,
+			},
+			required: [
+				'settings', 'scope'
+			],
+			additionalProperties: false
 		}
 	};
 }
@@ -180,6 +189,7 @@ export function tokenColorsSchema(description: string): IJSONSchema {
 const schemaId = 'vscode://schemas/color-theme';
 const schema: IJSONSchema = {
 	type: 'object',
+	allowComments: true,
 	properties: {
 		colors: colorsSchema,
 		tokenColors: {

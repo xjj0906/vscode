@@ -22,7 +22,7 @@ import { IProgressService } from 'vs/platform/progress/common/progress';
 import { IStorageService, NullStorageService } from 'vs/platform/storage/common/storage';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
-import { ICodeEditorService } from 'vs/editor/common/services/codeEditorService';
+import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
 import { IEditorWorkerService } from 'vs/editor/common/services/editorWorkerService';
 import { EditorWorkerServiceImpl } from 'vs/editor/common/services/editorWorkerServiceImpl';
 import { ITextResourceConfigurationService } from 'vs/editor/common/services/resourceConfiguration';
@@ -40,6 +40,7 @@ import { ContextKeyService } from 'vs/platform/contextkey/browser/contextKeyServ
 import { IMenuService } from 'vs/platform/actions/common/actions';
 import { IStandaloneThemeService } from 'vs/editor/standalone/common/standaloneThemeService';
 import { StandaloneThemeServiceImpl } from 'vs/editor/standalone/browser/standaloneThemeServiceImpl';
+import { ILogService, NullLogService } from 'vs/platform/log/common/log';
 
 export interface IEditorContextViewService extends IContextViewService {
 	dispose(): void;
@@ -132,7 +133,7 @@ export module StaticServices {
 
 	export const modelService = define(IModelService, (o) => new ModelServiceImpl(markerService.get(o), configurationService.get(o)));
 
-	export const editorWorkerService = define(IEditorWorkerService, (o) => new EditorWorkerServiceImpl(modelService.get(o), resourceConfigurationService.get(o), modeService.get(o)));
+	export const editorWorkerService = define(IEditorWorkerService, (o) => new EditorWorkerServiceImpl(modelService.get(o), resourceConfigurationService.get(o)));
 
 	export const standaloneThemeService = define(IStandaloneThemeService, () => new StandaloneThemeServiceImpl());
 
@@ -141,6 +142,8 @@ export module StaticServices {
 	export const progressService = define(IProgressService, () => new SimpleProgressService());
 
 	export const storageService = define(IStorageService, () => NullStorageService);
+
+	export const logService = define(ILogService, () => new NullLogService());
 
 }
 
@@ -176,9 +179,9 @@ export class DynamicStandaloneServices extends Disposable {
 
 		let commandService = ensure(ICommandService, () => new StandaloneCommandService(this._instantiationService));
 
-		ensure(IKeybindingService, () => this._register(new StandaloneKeybindingService(contextKeyService, commandService, messageService, domElement)));
+		ensure(IKeybindingService, () => this._register(new StandaloneKeybindingService(contextKeyService, commandService, telemetryService, messageService, domElement)));
 
-		let contextViewService = ensure(IContextViewService, () => this._register(new ContextViewService(domElement, telemetryService, messageService)));
+		let contextViewService = ensure(IContextViewService, () => this._register(new ContextViewService(domElement, telemetryService, messageService, new NullLogService())));
 
 		ensure(IContextMenuService, () => this._register(new ContextMenuService(domElement, telemetryService, messageService, contextViewService)));
 

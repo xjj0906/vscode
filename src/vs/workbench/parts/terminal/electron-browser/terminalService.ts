@@ -6,67 +6,69 @@
 import * as nls from 'vs/nls';
 import * as pfs from 'vs/base/node/pfs';
 import * as platform from 'vs/base/common/platform';
-import product from 'vs/platform/node/product';
 import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { ILifecycleService } from 'vs/platform/lifecycle/common/lifecycle';
 import { IPanelService } from 'vs/workbench/services/panel/common/panelService';
 import { IPartService } from 'vs/workbench/services/part/common/partService';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IConfigurationEditingService, ConfigurationTarget } from 'vs/workbench/services/configuration/common/configurationEditing';
+import { IConfigurationService, ConfigurationTarget } from 'vs/platform/configuration/common/configuration';
 import { IQuickOpenService, IPickOpenEntry, IPickOptions } from 'vs/platform/quickOpen/common/quickOpen';
 import { ITerminalInstance, ITerminalService, IShellLaunchConfig, ITerminalConfigHelper, NEVER_SUGGEST_SELECT_WINDOWS_SHELL_STORAGE_KEY, TERMINAL_PANEL_ID } from 'vs/workbench/parts/terminal/common/terminal';
 import { TerminalService as AbstractTerminalService } from 'vs/workbench/parts/terminal/common/terminalService';
 import { TerminalConfigHelper } from 'vs/workbench/parts/terminal/electron-browser/terminalConfigHelper';
-import { TerminalInstance } from 'vs/workbench/parts/terminal/electron-browser/terminalInstance';
 import { TPromise } from 'vs/base/common/winjs.base';
-import { IChoiceService } from 'vs/platform/message/common/message';
+import { IChoiceService, IMessageService } from 'vs/platform/message/common/message';
 import Severity from 'vs/base/common/severity';
 import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
-import { TERMINAL_DEFAULT_SHELL_WINDOWS } from "vs/workbench/parts/terminal/electron-browser/terminal";
-import { TerminalPanel } from "vs/workbench/parts/terminal/electron-browser/terminalPanel";
-import { IWindowService } from "vs/platform/windows/common/windows";
+import { TERMINAL_DEFAULT_SHELL_WINDOWS } from 'vs/workbench/parts/terminal/electron-browser/terminal';
+import { TerminalPanel } from 'vs/workbench/parts/terminal/electron-browser/terminalPanel';
+import { TerminalTab } from 'vs/workbench/parts/terminal/electron-browser/terminalTab';
 
 export class TerminalService extends AbstractTerminalService implements ITerminalService {
 	private _configHelper: TerminalConfigHelper;
-	public get configHelper(): ITerminalConfigHelper { return this._configHelper; };
+	public get configHelper(): ITerminalConfigHelper { return this._configHelper; }
+
+	protected _terminalTabs: TerminalTab[];
+	protected get _terminalInstances(): ITerminalInstance[] {
+		return this._terminalTabs.reduce((p, c) => p.concat(c.terminalInstances), <ITerminalInstance[]>[]);
+	}
 
 	constructor(
 		@IContextKeyService _contextKeyService: IContextKeyService,
-		@IConfigurationService _configurationService: IConfigurationService,
 		@IPanelService _panelService: IPanelService,
 		@IPartService _partService: IPartService,
 		@ILifecycleService _lifecycleService: ILifecycleService,
+		@IConfigurationService private _configurationService: IConfigurationService,
 		@IInstantiationService private _instantiationService: IInstantiationService,
-		@IWindowService private _windowService: IWindowService,
 		@IQuickOpenService private _quickOpenService: IQuickOpenService,
-		@IConfigurationEditingService private _configurationEditingService: IConfigurationEditingService,
 		@IChoiceService private _choiceService: IChoiceService,
-		@IStorageService private _storageService: IStorageService
+		@IStorageService private _storageService: IStorageService,
+		@IMessageService private _messageService: IMessageService
 	) {
-		super(_contextKeyService, _configurationService, _panelService, _partService, _lifecycleService);
+		super(_contextKeyService, _panelService, _partService, _lifecycleService);
 
-		this._configHelper = this._instantiationService.createInstance(TerminalConfigHelper, platform.platform);
+		this._terminalTabs = [];
+		this._configHelper = this._instantiationService.createInstance(TerminalConfigHelper);
 	}
 
 	public createInstance(shell: IShellLaunchConfig = {}, wasNewTerminalAction?: boolean): ITerminalInstance {
-		let terminalInstance = this._instantiationService.createInstance(TerminalInstance,
+		const terminalTab = this._instantiationService.createInstance(TerminalTab,
 			this._terminalFocusContextKey,
 			this._configHelper,
 			this._terminalContainer,
 			shell);
-		terminalInstance.addDisposable(terminalInstance.onTitleChanged(this._onInstanceTitleChanged.fire, this._onInstanceTitleChanged));
-		terminalInstance.addDisposable(terminalInstance.onDisposed(this._onInstanceDisposed.fire, this._onInstanceDisposed));
-		terminalInstance.addDisposable(terminalInstance.onDataForApi(this._onInstanceData.fire, this._onInstanceData));
-		terminalInstance.addDisposable(terminalInstance.onProcessIdReady(this._onInstanceProcessIdReady.fire, this._onInstanceProcessIdReady));
-		this.terminalInstances.push(terminalInstance);
+		this._terminalTabs.push(terminalTab);
+		const instance = terminalTab.terminalInstances[0];
+		terminalTab.addDisposable(terminalTab.onDisposed(this._onTabDisposed.fire, this._onTabDisposed));
+		terminalTab.addDisposable(terminalTab.onInstancesChanged(this._onInstancesChanged.fire, this._onInstancesChanged));
+		this._initInstanceListeners(instance);
 		if (this.terminalInstances.length === 1) {
 			// It's the first instance so it should be made active automatically
 			this.setActiveInstanceByIndex(0);
 		}
 		this._onInstancesChanged.fire();
 		this._suggestShellChange(wasNewTerminalAction);
-		return terminalInstance;
+		return instance;
 	}
 
 	public focusFindWidget(): TPromise<void> {
@@ -83,6 +85,20 @@ export class TerminalService extends AbstractTerminalService implements ITermina
 			panel.hideFindWidget();
 			this._findWidgetVisible.reset();
 			panel.focus();
+		}
+	}
+
+	public showNextFindTermFindWidget(): void {
+		const panel = this._panelService.getActivePanel() as TerminalPanel;
+		if (panel && panel.getId() === TERMINAL_PANEL_ID) {
+			panel.showNextFindTermFindWidget();
+		}
+	}
+
+	public showPreviousFindTermFindWidget(): void {
+		const panel = this._panelService.getActivePanel() as TerminalPanel;
+		if (panel && panel.getId() === TERMINAL_PANEL_ID) {
+			panel.showPreviousFindTermFindWidget();
 		}
 	}
 
@@ -111,7 +127,7 @@ export class TerminalService extends AbstractTerminalService implements ITermina
 		}
 
 		const message = nls.localize('terminal.integrated.chooseWindowsShellInfo', "You can change the default terminal shell by selecting the customize button.");
-		const options = [nls.localize('customize', "Customize"), nls.localize('cancel', "Cancel"), nls.localize('never again', "OK, Never Show Again")];
+		const options = [nls.localize('customize', "Customize"), nls.localize('cancel', "Cancel"), nls.localize('never again', "OK, Don't Show Again")];
 		this._choiceService.choose(Severity.Info, message, options, 1).then(choice => {
 			switch (choice) {
 				case 0:
@@ -149,8 +165,7 @@ export class TerminalService extends AbstractTerminalService implements ITermina
 					return null;
 				}
 				const shell = value.description;
-				const configChange = { key: 'terminal.integrated.shell.windows', value: shell };
-				return this._configurationEditingService.writeConfiguration(ConfigurationTarget.USER, configChange).then(() => shell);
+				return this._configurationService.updateValue('terminal.integrated.shell.windows', shell, ConfigurationTarget.USER).then(() => shell);
 			});
 		});
 	}
@@ -171,6 +186,7 @@ export class TerminalService extends AbstractTerminalService implements ITermina
 				`${process.env['ProgramW6432']}\\Git\\usr\\bin\\bash.exe`,
 				`${process.env['ProgramFiles']}\\Git\\bin\\bash.exe`,
 				`${process.env['ProgramFiles']}\\Git\\usr\\bin\\bash.exe`,
+				`${process.env['LocalAppData']}\\Programs\\Git\\bin\\bash.exe`,
 			]
 		};
 		const promises: TPromise<[string, string]>[] = [];
@@ -203,28 +219,24 @@ export class TerminalService extends AbstractTerminalService implements ITermina
 		return activeInstance ? activeInstance : this.createInstance(undefined, wasNewTerminalAction);
 	}
 
-	protected _showTerminalCloseConfirmation(): boolean {
-		const cancelId = 1;
+	protected _showTerminalCloseConfirmation(): TPromise<boolean> {
 		let message;
 		if (this.terminalInstances.length === 1) {
 			message = nls.localize('terminalService.terminalCloseConfirmationSingular', "There is an active terminal session, do you want to kill it?");
 		} else {
 			message = nls.localize('terminalService.terminalCloseConfirmationPlural', "There are {0} active terminal sessions, do you want to kill them?", this.terminalInstances.length);
 		}
-		const opts: Electron.ShowMessageBoxOptions = {
-			title: product.nameLong,
+
+		return this._messageService.confirm({
 			message,
 			type: 'warning',
-			buttons: [nls.localize('yes', "Yes"), nls.localize('cancel', "Cancel")],
-			noLink: true,
-			cancelId
-		};
-		return this._windowService.showMessageBox(opts) === cancelId;
+		}).then(confirmed => !confirmed);
 	}
 
 	public setContainers(panelContainer: HTMLElement, terminalContainer: HTMLElement): void {
 		this._configHelper.panelContainer = panelContainer;
 		this._terminalContainer = terminalContainer;
+		this._terminalTabs.forEach(tab => tab.attachToElement(this._terminalContainer));
 		this._terminalInstances.forEach(terminalInstance => {
 			terminalInstance.attachToElement(this._terminalContainer);
 		});

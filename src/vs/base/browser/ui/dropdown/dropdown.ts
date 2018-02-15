@@ -11,7 +11,6 @@ import { TPromise } from 'vs/base/common/winjs.base';
 import { Gesture, EventType as GestureEventType } from 'vs/base/browser/touch';
 import { ActionRunner, IAction } from 'vs/base/common/actions';
 import { IActionItem } from 'vs/base/browser/ui/actionbar/actionbar';
-import { EventEmitter } from 'vs/base/common/eventEmitter';
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
 import { IContextViewProvider } from 'vs/base/browser/ui/contextview/contextview';
 import { IMenuOptions } from 'vs/base/browser/ui/menu/menu';
@@ -54,12 +53,11 @@ export class BaseDropdown extends ActionRunner {
 		this.$label.on([EventType.CLICK, EventType.MOUSE_DOWN, GestureEventType.Tap], (e: Event) => {
 			EventHelper.stop(e, true); // prevent default click behaviour to trigger
 		}).on([EventType.MOUSE_DOWN, GestureEventType.Tap], (e: Event) => {
-			// We want to show the context menu on dropdown so that as a user you can press and hold the
-			// mouse button, make a choice of action in the menu and release the mouse to trigger that
-			// action.
-			// Due to some weird bugs though, we delay showing the menu to unwind event stack
-			// (see https://github.com/Microsoft/vscode/issues/27648)
-			setTimeout(() => this.show(), 100);
+			if (e instanceof MouseEvent && e.detail > 1) {
+				return; // prevent multiple clicks to open multiple context menus (https://github.com/Microsoft/vscode/issues/41363)
+			}
+
+			this.show();
 		}).appendTo(this.$el);
 
 		let cleanupFn = labelRenderer(this.$label.getHTMLElement());
@@ -68,7 +66,7 @@ export class BaseDropdown extends ActionRunner {
 			this._toDispose.push(cleanupFn);
 		}
 
-		this._toDispose.push(new Gesture(this.$label.getHTMLElement()));
+		Gesture.addTarget(this.$label.getHTMLElement());
 	}
 
 	public get toDispose(): IDisposable[] {
@@ -243,23 +241,5 @@ export class DropdownMenu extends BaseDropdown {
 
 	public hide(): void {
 		// noop
-	}
-}
-
-export class DropdownGroup extends EventEmitter {
-
-	private el: HTMLElement;
-
-	constructor(container: HTMLElement) {
-		super();
-
-		this.el = document.createElement('div');
-		this.el.className = 'dropdown-group';
-
-		container.appendChild(this.el);
-	}
-
-	public get element(): HTMLElement {
-		return this.el;
 	}
 }

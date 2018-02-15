@@ -172,7 +172,6 @@ function optimizeTask(opts) {
     };
 }
 exports.optimizeTask = optimizeTask;
-;
 /**
  * Wrap around uglify and allow the preserveComments function
  * to have a file "context" to include our copyright only once per file.
@@ -210,8 +209,7 @@ function uglifyWithCopyrights() {
         return stream.pipe(minify({
             output: {
                 comments: preserveComments(f),
-                // linux tfs build agent is crashing, does this help?§
-                max_line_len: 3200000
+                max_line_len: 1024
             }
         }));
     }));
@@ -236,4 +234,3 @@ function minifyTask(src, sourceMapBaseUrl) {
     };
 }
 exports.minifyTask = minifyTask;
-;

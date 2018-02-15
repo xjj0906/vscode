@@ -35,11 +35,13 @@ export enum Severity {
 export interface IMessageWithAction {
 	message: string;
 	actions: Action[];
+	source: string;
 }
 
 interface IMessageEntry {
 	id: any;
 	text: string;
+	source: string;
 	severity: Severity;
 	time: number;
 	count?: number;
@@ -188,6 +190,18 @@ export class MessageList {
 	private doShowMessage(id: Error, message: string, severity: Severity, onHide: () => void): () => void;
 	private doShowMessage(id: IMessageWithAction, message: string, severity: Severity, onHide: () => void): () => void;
 	private doShowMessage(id: any, message: string, severity: Severity, onHide: () => void): () => void {
+		const actions = (<IMessageWithAction>id).actions;
+		const source = (<IMessageWithAction>id).source || 'vscode';
+
+		// Telemetry (TODO@Ben remove me later)
+		/* __GDPR__
+			"showMessage" : {
+				"message" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+				"source" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+				"buttons" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
+			}
+		*/
+		this.telemetryService.publicLog('showMessage', { message, source, buttons: actions ? actions.map(a => a.label) : void 0 });
 
 		// Trigger Auto-Purge of messages to keep list small
 		this.purgeMessages();
@@ -198,7 +212,8 @@ export class MessageList {
 			text: message,
 			severity: severity,
 			time: Date.now(),
-			actions: (<IMessageWithAction>id).actions,
+			actions,
+			source,
 			onHide
 		});
 
@@ -301,6 +316,12 @@ export class MessageList {
 
 								DOM.EventHelper.stop(e, true);
 
+								/* __GDPR__
+									"workbenchActionExecuted" : {
+										"id" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+										"from": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
+									}
+								*/
 								this.telemetryService.publicLog('workbenchActionExecuted', { id: action.id, from: 'message' });
 
 								(action.run() || TPromise.as(null))
@@ -339,7 +360,12 @@ export class MessageList {
 					className: 'message-left-side',
 				});
 
-				$(messageContentElement as HTMLElement).title(messageContentElement.textContent).appendTo(div);
+				// Hover title
+				const title = message.source ? `[${message.source}] ${messageContentElement.textContent}` : messageContentElement.textContent;
+
+				sevLabel.title(title);
+
+				$(messageContentElement).title(title).appendTo(div);
 			});
 		});
 	}

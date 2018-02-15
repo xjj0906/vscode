@@ -25,13 +25,26 @@ export function registerContributions(): void {
 		},
 		menu: {
 			menuId: MenuId.ProblemsPanelContext,
-			when: Constants.MarkerFocusContextKey
+			when: Constants.MarkerFocusContextKey,
+			group: 'navigation'
 		},
 		keybinding: {
 			keys: {
 				primary: KeyMod.CtrlCmd | KeyCode.KEY_C
 			},
 			when: Constants.MarkerFocusContextKey
+		}
+	});
+	registerAction({
+		id: Constants.MARKER_COPY_MESSAGE_ACTION_ID,
+		title: localize('copyMarkerMessage', "Copy Message"),
+		handler(accessor) {
+			copyMessage(accessor.get(IPanelService));
+		},
+		menu: {
+			menuId: MenuId.ProblemsPanelContext,
+			when: Constants.MarkerFocusContextKey,
+			group: 'navigation'
 		}
 	});
 }
@@ -46,6 +59,16 @@ function copyMarker(panelService: IPanelService) {
 	}
 }
 
+function copyMessage(panelService: IPanelService) {
+	const activePanel = panelService.getActivePanel();
+	if (activePanel instanceof MarkersPanel) {
+		const element = (<MarkersPanel>activePanel).getFocusElement();
+		if (element instanceof Marker) {
+			clipboard.writeText(element.marker.message);
+		}
+	}
+}
+
 interface IActionDescriptor {
 	id: string;
 	handler: ICommandHandler;
@@ -53,7 +76,6 @@ interface IActionDescriptor {
 	// ICommandUI
 	title: string;
 	category?: string;
-	iconClass?: string;
 	f1?: boolean;
 
 	//
@@ -73,13 +95,13 @@ interface IActionDescriptor {
 
 function registerAction(desc: IActionDescriptor) {
 
-	const { id, handler, title, category, iconClass, menu, keybinding } = desc;
+	const { id, handler, title, category, menu, keybinding } = desc;
 
 	// 1) register as command
 	CommandsRegistry.registerCommand(id, handler);
 
 	// 2) menus
-	let command = { id, title, iconClass, category };
+	let command = { id, title, category };
 	if (menu) {
 		let { menuId, when, group } = menu;
 		MenuRegistry.appendMenuItem(menuId, {

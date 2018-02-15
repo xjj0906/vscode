@@ -5,17 +5,17 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TableOfContentsProvider } from './tableOfContentsProvider';
+import { Slug } from './tableOfContentsProvider';
 import { MarkdownIt, Token } from 'markdown-it';
 
 const FrontMatterRegex = /^---\s*[^]*?(-{3}|\.{3})\s*/;
 
 export class MarkdownEngine {
-	private md: MarkdownIt;
+	private md?: MarkdownIt;
 
-	private firstLine: number;
+	private firstLine?: number;
 
-	private currentDocument: vscode.Uri;
+	private currentDocument?: vscode.Uri;
 
 	private plugins: Array<(md: any) => any> = [];
 
@@ -35,22 +35,26 @@ export class MarkdownEngine {
 		}
 	}
 
-	private async getEngine(): Promise<MarkdownIt> {
+	private async getEngine(resource: vscode.Uri): Promise<MarkdownIt> {
 		if (!this.md) {
 			const hljs = await import('highlight.js');
 			const mdnh = await import('markdown-it-named-headers');
 			this.md = (await import('markdown-it'))({
 				html: true,
 				highlight: (str: string, lang: string) => {
+					// Workaround for highlight not supporting tsx: https://github.com/isagalaev/highlight.js/issues/1155
+					if (lang && ['tsx', 'typescriptreact'].indexOf(lang.toLocaleLowerCase()) >= 0) {
+						lang = 'jsx';
+					}
 					if (lang && hljs.getLanguage(lang)) {
 						try {
 							return `<pre class="hljs"><code><div>${hljs.highlight(lang, str, true).value}</div></code></pre>`;
 						} catch (error) { }
 					}
-					return `<pre class="hljs"><code><div>${this.md.utils.escapeHtml(str)}</div></code></pre>`;
+					return `<pre class="hljs"><code><div>${this.md!.utils.escapeHtml(str)}</div></code></pre>`;
 				}
 			}).use(mdnh, {
-				slugify: (header: string) => TableOfContentsProvider.slugify(header)
+				slugify: (header: string) => Slug.fromHeading(header).value
 			});
 
 			for (const plugin of this.plugins) {
@@ -66,10 +70,10 @@ export class MarkdownEngine {
 			this.addLinkValidator(this.md);
 		}
 
-		const config = vscode.workspace.getConfiguration('markdown');
+		const config = vscode.workspace.getConfiguration('markdown', resource);
 		this.md.set({
-			breaks: config.get('preview.breaks', false),
-			linkify: config.get('preview.linkify', true)
+			breaks: config.get<boolean>('preview.breaks', false),
+			linkify: config.get<boolean>('preview.linkify', true)
 		});
 		return this.md;
 	}
@@ -94,14 +98,14 @@ export class MarkdownEngine {
 		}
 		this.currentDocument = document;
 		this.firstLine = offset;
-		const engine = await this.getEngine();
+		const engine = await this.getEngine(document);
 		return engine.render(text);
 	}
 
 	public async parse(document: vscode.Uri, source: string): Promise<Token[]> {
 		const { text, offset } = this.stripFrontmatter(source);
 		this.currentDocument = document;
-		const engine = await this.getEngine();
+		const engine = await this.getEngine(document);
 
 		return engine.parse(text, {}).map(token => {
 			if (token.map) {
@@ -133,17 +137,22 @@ export class MarkdownEngine {
 		md.normalizeLink = (link: string) => {
 			try {
 				let uri = vscode.Uri.parse(link);
-				if (!uri.scheme && uri.path && !uri.fragment) {
+				if (!uri.scheme && uri.path) {
 					// Assume it must be a file
+					const fragment = uri.fragment;
 					if (uri.path[0] === '/') {
-						const root = vscode.workspace.getWorkspaceFolder(this.currentDocument);
+						const root = vscode.workspace.getWorkspaceFolder(this.currentDocument!);
 						if (root) {
 							uri = vscode.Uri.file(path.join(root.uri.fsPath, uri.path));
 						}
 					} else {
-						uri = vscode.Uri.file(path.join(path.dirname(this.currentDocument.path), uri.path));
+						uri = vscode.Uri.file(path.join(path.dirname(this.currentDocument!.path), uri.path));
 					}
-					return normalizeLink(uri.toString(true));
+
+					if (fragment) {
+						uri = uri.with({ fragment });
+					}
+					return normalizeLink(uri.with({ scheme: 'vscode-workspace-resource' }).toString(true));
 				}
 			} catch (e) {
 				// noop

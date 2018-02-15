@@ -67,7 +67,7 @@ function fixWin32DirectoryPermissions() {
 exports.fixWin32DirectoryPermissions = fixWin32DirectoryPermissions;
 function setExecutableBit(pattern) {
     var setBit = es.mapSync(function (f) {
-        f.stat.mode = 33261;
+        f.stat.mode = /* 100755 */ 33261;
         return f;
     });
     if (!pattern) {
@@ -173,7 +173,6 @@ function rimraf(dir) {
             if (!err) {
                 return cb();
             }
-            ;
             if (err.code === 'ENOTEMPTY' && ++retries < 5) {
                 return setTimeout(function () { return retry(cb); }, 10);
             }

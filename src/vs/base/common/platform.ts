@@ -14,10 +14,12 @@ let _isNative = false;
 let _isWeb = false;
 let _locale: string = undefined;
 let _language: string = undefined;
+let _translationsConfigFile: string = undefined;
 
 interface NLSConfig {
 	locale: string;
 	availableLanguages: { [key: string]: string; };
+	_translationsConfigFile: string;
 }
 
 export interface IProcessEnvironment {
@@ -55,6 +57,7 @@ if (typeof process === 'object') {
 			_locale = nlsConfig.locale;
 			// VSCode's default language is 'en'
 			_language = resolved ? resolved : LANGUAGE_DEFAULT;
+			_translationsConfigFile = nlsConfig._translationsConfigFile;
 		} catch (e) {
 		}
 	}
@@ -109,6 +112,11 @@ export const language = _language;
  */
 export const locale = _locale;
 
+/**
+ * The translatios that are available through language packs.
+ */
+export const translationsConfigFile = _translationsConfigFile;
+
 export interface TimeoutToken {
 }
 
@@ -127,9 +135,6 @@ interface IGlobals {
 const _globals = <IGlobals>(typeof self === 'object' ? self : global);
 export const globals: any = _globals;
 
-export function hasWebWorkerSupport(): boolean {
-	return typeof _globals.Worker !== 'undefined';
-}
 export const setTimeout = _globals.setTimeout.bind(_globals);
 export const clearTimeout = _globals.clearTimeout.bind(_globals);
 

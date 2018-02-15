@@ -7,6 +7,7 @@
 
 import * as assert from 'assert';
 import * as os from 'os';
+import * as platform from 'vs/base/common/platform';
 import Uri from 'vs/base/common/uri';
 import { IMessageService } from 'vs/platform/message/common/message';
 import { IStringDictionary } from 'vs/base/common/collections';
@@ -19,14 +20,18 @@ import { MockContextKeyService, MockKeybindingService } from 'vs/platform/keybin
 import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
 import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
 import { IHistoryService } from 'vs/workbench/services/history/common/history';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { TestConfigurationService } from 'vs/platform/configuration/test/common/testConfigurationService';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 
 class TestTerminalInstance extends TerminalInstance {
+
 	public _getCwd(shell: IShellLaunchConfig, root: Uri): string {
 		return super._getCwd(shell, root);
 	}
 
-	protected _createProcess(shell: IShellLaunchConfig): void { }
-	protected _createXterm(): void { }
+	protected _createProcess(): void { }
+	protected _createXterm(): TPromise<void> { return TPromise.as(void 0); }
 }
 
 suite('Workbench - TerminalInstance', () => {
@@ -39,14 +44,14 @@ suite('Workbench - TerminalInstance', () => {
 		instantiationService.stub(IHistoryService, new TestHistoryService());
 	});
 
-	test('TerminalInstance - createTerminalEnv', function () {
+	test('createTerminalEnv', function () {
 		const shell1 = {
 			executable: '/bin/foosh',
 			args: ['-bar', 'baz']
 		};
-		const parentEnv1: IStringDictionary<string> = <any>{
+		const parentEnv1: IStringDictionary<string> = {
 			ok: true
-		};
+		} as any;
 		const env1 = TerminalInstance.createTerminalEnv(parentEnv1, shell1, '/foo', 'en-au');
 		assert.ok(env1['ok'], 'Parent environment is copied');
 		assert.deepStrictEqual(parentEnv1, { ok: true }, 'Parent environment is unchanged');
@@ -58,11 +63,11 @@ suite('Workbench - TerminalInstance', () => {
 		assert.equal(env1['PTYCWD'], '/foo', 'PTYCWD is equal to requested cwd');
 		assert.equal(env1['LANG'], 'en_AU.UTF-8', 'LANG is equal to the requested locale with UTF-8');
 
-		const shell2 = {
+		const shell2: IShellLaunchConfig = {
 			executable: '/bin/foosh',
 			args: []
 		};
-		const parentEnv2: IStringDictionary<string> = <any>{
+		const parentEnv2: IStringDictionary<string> = {
 			LANG: 'en_US.UTF-8'
 		};
 		const env2 = TerminalInstance.createTerminalEnv(parentEnv2, shell2, '/foo', 'en-au');
@@ -77,6 +82,69 @@ suite('Workbench - TerminalInstance', () => {
 		assert.equal(env4['LANG'], 'en_US.UTF-8', 'LANG is equal to the parent environment\'s LANG');
 	});
 
+	suite('mergeEnvironments', () => {
+		test('should add keys', () => {
+			const parent = {
+				a: 'b'
+			};
+			const other = {
+				c: 'd'
+			};
+			TerminalInstance.mergeEnvironments(parent, other);
+			assert.deepEqual(parent, {
+				a: 'b',
+				c: 'd'
+			});
+		});
+
+		test('should add keys ignoring case on Windows', () => {
+			if (!platform.isWindows) {
+				return;
+			}
+			const parent = {
+				a: 'b'
+			};
+			const other = {
+				A: 'c'
+			};
+			TerminalInstance.mergeEnvironments(parent, other);
+			assert.deepEqual(parent, {
+				a: 'c'
+			});
+		});
+
+		test('null values should delete keys from the parent env', () => {
+			const parent = {
+				a: 'b',
+				c: 'd'
+			};
+			const other: IStringDictionary<string> = {
+				a: null
+			};
+			TerminalInstance.mergeEnvironments(parent, other);
+			assert.deepEqual(parent, {
+				c: 'd'
+			});
+		});
+
+		test('null values should delete keys from the parent env ignoring case on Windows', () => {
+			if (!platform.isWindows) {
+				return;
+			}
+			const parent = {
+				a: 'b',
+				c: 'd'
+			};
+			const other: IStringDictionary<string> = {
+				A: null
+			};
+			TerminalInstance.mergeEnvironments(parent, other);
+			assert.deepEqual(parent, {
+				c: 'd'
+			});
+		});
+	});
+
 	suite('_getCwd', () => {
 		let instance: TestTerminalInstance;
 		let instantiationService: TestInstantiationService;
@@ -87,6 +155,7 @@ suite('Workbench - TerminalInstance', () => {
 			let keybindingService = new MockKeybindingService();
 			let terminalFocusContextKey = contextKeyService.createKey('test', false);
 			instantiationService = new TestInstantiationService();
+			instantiationService.stub(IConfigurationService, new TestConfigurationService());
 			instantiationService.stub(IMessageService, new TestMessageService());
 			instantiationService.stub(IWorkspaceContextService, new TestContextService());
 			instantiationService.stub(IKeybindingService, keybindingService);

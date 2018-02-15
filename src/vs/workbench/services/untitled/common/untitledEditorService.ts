@@ -12,13 +12,11 @@ import { IFilesConfiguration } from 'vs/platform/files/common/files';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import Event, { Emitter, once } from 'vs/base/common/event';
 import { ResourceMap } from 'vs/base/common/map';
-import { TPromise } from "vs/base/common/winjs.base";
+import { TPromise } from 'vs/base/common/winjs.base';
 import { UntitledEditorModel } from 'vs/workbench/common/editor/untitledEditorModel';
 import { Schemas } from 'vs/base/common/network';
 
 export const IUntitledEditorService = createDecorator<IUntitledEditorService>('untitledEditorService');
-
-export const UNTITLED_SCHEMA = 'untitled';
 
 export interface IModelLoadOrCreateOptions {
 	resource?: URI;
@@ -204,7 +202,7 @@ export class UntitledEditorService implements IUntitledEditorService {
 		let hasAssociatedFilePath = false;
 		if (resource) {
 			hasAssociatedFilePath = (resource.scheme === Schemas.file);
-			resource = resource.with({ scheme: UNTITLED_SCHEMA }); // ensure we have the right scheme
+			resource = resource.with({ scheme: Schemas.untitled }); // ensure we have the right scheme
 
 			if (hasAssociatedFilePath) {
 				this.mapResourceToAssociatedFilePath.set(resource, true); // remember for future lookups
@@ -226,14 +224,14 @@ export class UntitledEditorService implements IUntitledEditorService {
 			// Create new taking a resource URI that is not already taken
 			let counter = this.mapResourceToInput.size + 1;
 			do {
-				resource = URI.from({ scheme: UNTITLED_SCHEMA, path: `Untitled-${counter}` });
+				resource = URI.from({ scheme: Schemas.untitled, path: `Untitled-${counter}` });
 				counter++;
 			} while (this.mapResourceToInput.has(resource));
 		}
 
 		// Look up default language from settings if any
 		if (!modeId && !hasAssociatedFilePath) {
-			const configuration = this.configurationService.getConfiguration<IFilesConfiguration>();
+			const configuration = this.configurationService.getValue<IFilesConfiguration>();
 			if (configuration.files && configuration.files.defaultLanguage) {
 				modeId = configuration.files.defaultLanguage;
 			}

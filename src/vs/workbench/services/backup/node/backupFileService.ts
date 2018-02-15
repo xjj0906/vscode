@@ -7,16 +7,15 @@
 
 import * as path from 'path';
 import * as crypto from 'crypto';
-import * as platform from 'vs/base/common/platform';
-import pfs = require('vs/base/node/pfs');
+import * as pfs from 'vs/base/node/pfs';
 import Uri from 'vs/base/common/uri';
-import { Queue } from 'vs/base/common/async';
-import { IBackupFileService, BACKUP_FILE_UPDATE_OPTIONS } from 'vs/workbench/services/backup/common/backup';
-import { IFileService } from 'vs/platform/files/common/files';
+import { ResourceQueue } from 'vs/base/common/async';
+import { IBackupFileService, BACKUP_FILE_UPDATE_OPTIONS, BACKUP_FILE_RESOLVE_OPTIONS } from 'vs/workbench/services/backup/common/backup';
+import { IFileService, ITextSnapshot } from 'vs/platform/files/common/files';
 import { TPromise } from 'vs/base/common/winjs.base';
 import { readToMatchingString } from 'vs/base/node/stream';
-import { TextSource, IRawTextSource } from 'vs/editor/common/model/textSource';
-import { DefaultEndOfLine } from 'vs/editor/common/editorCommon';
+import { ITextBufferFactory } from 'vs/editor/common/model';
+import { createTextBufferFactoryFromStream } from 'vs/editor/common/model/textModel';
 
 export interface IBackupFilesModel {
 	resolve(backupRoot: string): TPromise<IBackupFilesModel>;
@@ -27,6 +26,28 @@ export interface IBackupFilesModel {
 	remove(resource: Uri): void;
 	count(): number;
 	clear(): void;
+}
+
+export class BackupSnapshot implements ITextSnapshot {
+	private preambleHandled: boolean;
+
+	constructor(private snapshot: ITextSnapshot, private preamble: string) {
+	}
+
+	public read(): string {
+		let value = this.snapshot.read();
+		if (!this.preambleHandled) {
+			this.preambleHandled = true;
+
+			if (typeof value === 'string') {
+				value = this.preamble + value;
+			} else {
+				value = this.preamble;
+			}
+		}
+
+		return value;
+	}
 }
 
 export class BackupFilesModel implements IBackupFilesModel {
@@ -88,24 +109,29 @@ export class BackupFilesModel implements IBackupFilesModel {
 
 export class BackupFileService implements IBackupFileService {
 
+	private static readonly META_MARKER = '\n';
+
 	public _serviceBrand: any;
 
-	private static readonly META_MARKER = '\n';
+	private backupWorkspacePath: string;
 
 	private isShuttingDown: boolean;
 	private ready: TPromise<IBackupFilesModel>;
-	/**
-	 * Ensure IO operations on individual files are performed in order, this could otherwise lead
-	 * to unexpected behavior when backups are persisted and discarded in the wrong order.
-	 */
-	private ioOperationQueues: { [path: string]: Queue<void> };
+	private ioOperationQueues: ResourceQueue; // queue IO operations to ensure write order
 
 	constructor(
-		private backupWorkspacePath: string,
+		backupWorkspacePath: string,
 		@IFileService private fileService: IFileService
 	) {
 		this.isShuttingDown = false;
-		this.ioOperationQueues = {};
+		this.ioOperationQueues = new ResourceQueue();
+
+		this.initialize(backupWorkspacePath);
+	}
+
+	public initialize(backupWorkspacePath: string): void {
+		this.backupWorkspacePath = backupWorkspacePath;
+
 		this.ready = this.init();
 	}
 
@@ -131,7 +157,7 @@ export class BackupFileService implements IBackupFileService {
 
 	public loadBackupResource(resource: Uri): TPromise<Uri> {
 		return this.ready.then(model => {
-			const backupResource = this.getBackupResource(resource);
+			const backupResource = this.toBackupResource(resource);
 			if (!backupResource) {
 				return void 0;
 			}
@@ -141,27 +167,17 @@ export class BackupFileService implements IBackupFileService {
 				return backupResource;
 			}
 
-			// Otherwise: on Windows and Mac pre v1.11 we used to store backups in lowercase format
-			// Therefor we also want to check if we have backups of this old format hanging around
-			// TODO@Ben migration
-			if (platform.isWindows || platform.isMacintosh) {
-				const legacyBackupResource = this.getBackupResource(resource, true /* legacyMacWindowsFormat */);
-				if (model.has(legacyBackupResource)) {
-					return legacyBackupResource;
-				}
-			}
-
 			return void 0;
 		});
 	}
 
-	public backupResource(resource: Uri, content: string, versionId?: number): TPromise<void> {
+	public backupResource(resource: Uri, content: ITextSnapshot, versionId?: number): TPromise<void> {
 		if (this.isShuttingDown) {
 			return TPromise.as(void 0);
 		}
 
 		return this.ready.then(model => {
-			const backupResource = this.getBackupResource(resource);
+			const backupResource = this.toBackupResource(resource);
 			if (!backupResource) {
 				return void 0;
 			}
@@ -170,54 +186,26 @@ export class BackupFileService implements IBackupFileService {
 				return void 0; // return early if backup version id matches requested one
 			}
 
-			// Add metadata to top of file
-			content = `${resource.toString()}${BackupFileService.META_MARKER}${content}`;
+			return this.ioOperationQueues.queueFor(backupResource).queue(() => {
+				const preamble = `${resource.toString()}${BackupFileService.META_MARKER}`;
 
-			return this.getResourceIOQueue(backupResource).queue(() => {
-				return this.fileService.updateContent(backupResource, content, BACKUP_FILE_UPDATE_OPTIONS).then(() => model.add(backupResource, versionId));
+				// Update content with value
+				return this.fileService.updateContent(backupResource, new BackupSnapshot(content, preamble), BACKUP_FILE_UPDATE_OPTIONS).then(() => model.add(backupResource, versionId));
 			});
 		});
 	}
 
 	public discardResourceBackup(resource: Uri): TPromise<void> {
 		return this.ready.then(model => {
-			const backupResource = this.getBackupResource(resource);
+			const backupResource = this.toBackupResource(resource);
 			if (!backupResource) {
 				return void 0;
 			}
 
-			return this.getResourceIOQueue(backupResource).queue(() => {
+			return this.ioOperationQueues.queueFor(backupResource).queue(() => {
 				return pfs.del(backupResource.fsPath).then(() => model.remove(backupResource));
-			}).then(() => {
-
-				// On Windows and Mac pre v1.11 we used to store backups in lowercase format
-				// Therefor we also want to check if we have backups of this old format laying around
-				// TODO@Ben migration
-				if (platform.isWindows || platform.isMacintosh) {
-					const legacyBackupResource = this.getBackupResource(resource, true /* legacyMacWindowsFormat */);
-					if (model.has(legacyBackupResource)) {
-						return this.getResourceIOQueue(legacyBackupResource).queue(() => {
-							return pfs.del(legacyBackupResource.fsPath).then(() => model.remove(legacyBackupResource));
-						});
-					}
-				}
-
-				return TPromise.as(void 0);
 			});
 		});
-	}
-
-	private getResourceIOQueue(resource: Uri) {
-		const key = resource.toString();
-		if (!this.ioOperationQueues[key]) {
-			const queue = new Queue<void>();
-			queue.onFinished(() => {
-				queue.dispose();
-				delete this.ioOperationQueues[key];
-			});
-			this.ioOperationQueues[key] = queue;
-		}
-		return this.ioOperationQueues[key];
 	}
 
 	public discardAllWorkspaceBackups(): TPromise<void> {
@@ -247,22 +235,38 @@ export class BackupFileService implements IBackupFileService {
 		});
 	}
 
-	public parseBackupContent(rawTextSource: IRawTextSource): string {
-		const textSource = TextSource.fromRawTextSource(rawTextSource, DefaultEndOfLine.LF);
-		return textSource.lines.slice(1).join(textSource.EOL); // The first line of a backup text file is the file name
+	public resolveBackupContent(backup: Uri): TPromise<ITextBufferFactory> {
+		return this.fileService.resolveStreamContent(backup, BACKUP_FILE_RESOLVE_OPTIONS).then(content => {
+
+			// Add a filter method to filter out everything until the meta marker
+			let metaFound = false;
+			const metaPreambleFilter = (chunk: string) => {
+				if (!metaFound && chunk) {
+					const metaIndex = chunk.indexOf(BackupFileService.META_MARKER);
+					if (metaIndex === -1) {
+						return ''; // meta not yet found, return empty string
+					}
+
+					metaFound = true;
+					return chunk.substr(metaIndex + 1); // meta found, return everything after
+				}
+
+				return chunk;
+			};
+
+			return createTextBufferFactoryFromStream(content.value, metaPreambleFilter);
+		});
 	}
 
-	protected getBackupResource(resource: Uri, legacyMacWindowsFormat?: boolean): Uri {
+	public toBackupResource(resource: Uri): Uri {
 		if (!this.backupEnabled) {
 			return null;
 		}
 
-		return Uri.file(path.join(this.backupWorkspacePath, resource.scheme, this.hashPath(resource, legacyMacWindowsFormat)));
+		return Uri.file(path.join(this.backupWorkspacePath, resource.scheme, this.hashPath(resource)));
 	}
 
-	private hashPath(resource: Uri, legacyMacWindowsFormat?: boolean): string {
-		const caseAwarePath = legacyMacWindowsFormat ? resource.fsPath.toLowerCase() : resource.fsPath;
-
-		return crypto.createHash('md5').update(caseAwarePath).digest('hex');
+	private hashPath(resource: Uri): string {
+		return crypto.createHash('md5').update(resource.fsPath).digest('hex');
 	}
 }
